@@ -1,0 +1,234 @@
+import torch
+from eval_scripts.performance import metrics_multilabel
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score
+from tqdm import tqdm
+import numpy as np
+import pdb
+
+
+def train(
+    model,
+    trains,
+    valid,
+    test,
+    modalities,
+    savedir,
+    args,
+    encoder,
+    setting,
+    criterion,
+    lr=0.001,
+    weight_decay=0.0, 
+    optimizer=torch.optim.Adam, 
+    unsqueezing=[True,True], 
+    device="cuda:0",
+    train_weights=[1.0,1.0],
+    transpose=[False,False],
+    recon=False, 
+    recon_weight=1, 
+    recon_criterion=torch.nn.MSELoss(),
+    flips=-1, 
+    classesnum=[2,2,25],
+    start_from=0,
+    getattentionmap=False
+    ):
+
+    optim = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+    bestacc=0.0
+    fulltrains=[]
+    print('\nData preprocessing...')
+    for i in tqdm(range(len(trains))): # for each task
+        count=0 # count is batch number  
+        for j in tqdm(trains[i]): # for each batch of that task
+            # first round establish all the dictionaries for task 1, one per batch
+            # second round utilize existing dictionaries for the next task
+            # so fulltrains contain a list of dicts where the elements are divided by batch, each dict contains task and corresponding modalities of that batch
+            if count >= len(fulltrains):
+                fulltrains.append({})
+            fulltrains[count][str(i)] = j # a list of dicts, where keys are tasks, values are corresponding modality component of these tasks
+            if i == flips:
+                j[-1] = (j[-1] + 1) % classesnum[i]
+            count += 1
+    # fulltrains.reverse()
+    fulltrains=fulltrains[start_from:]
+    for ep in range(args.num_train_epochs):
+        print(f'\nTraining epoch {ep}/{args.num_train_epochs}...')
+        for js in tqdm(fulltrains): # for each sample
+            optim.zero_grad()
+            losses=0.0
+            for ii in js: # for each task
+                ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = js[ii]
+                embeddings = encoder(
+                    x_ts=ts_input_sequences, \
+                    x_ts_mask=ts_mask_sequences,\
+                    ts_tt_list=ts_tt,\
+                    input_ids_sequences=input_ids_sequences,\
+                    attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
+                    note_time_mask_list=note_time_mask,\
+                    cxr_feats=cxr_feats,\
+                    cxr_time=cxr_time, \
+                    cxr_time_mask=cxr_time_mask,\
+                    ecg_feats=ecg_feats,\
+                    ecg_time=ecg_time, \
+                    ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
+                    cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                )
+                model.to_logits = model.to_logitslist[int(ii)]
+                indict={}
+                for i in range(len(modalities[int(ii)])):
+                    if unsqueezing[int(ii)]:
+                        indict[modalities[int(ii)][i]]=js[ii][i].float().unsqueeze(-1).to(device)
+                    elif transpose[int(ii)]:
+                        indict[modalities[ii][i]]=j[i].float().to(device).transpose(1,2)
+                    else:
+                        indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
+
+                if recon:
+                    out, rec = model(indict, use_recon=True)
+                    stuffs = []
+                    for modal in indict:
+                        stuffs.append(torch.mean(indict[modal], dim=1))
+                    origs = torch.cat(stuffs, dim=1)
+                    loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs)
+                else:
+                    out = model(indict)
+                    if 'TS_PHENO' in modalities[int(ii)]:
+                        loss=criterion[int(ii)](out, label.float().to(device))
+                    else:
+                        loss=criterion[int(ii)](out, label.to(device))
+                losses += loss * train_weights[int(ii)]
+
+            losses.backward()
+            optim.step()
+
+        with torch.no_grad():
+            accs=0.0
+            eval_vals={}
+            print("\nValidation...")
+            for ii in tqdm(range(len(valid))): # for each task
+                eval_logits = []
+                eval_labels = []
+                for jj in tqdm(valid[ii]): # for each sample
+                    ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
+                    embeddings = encoder(
+                        x_ts=ts_input_sequences, \
+                        x_ts_mask=ts_mask_sequences,\
+                        ts_tt_list=ts_tt,\
+                        input_ids_sequences=input_ids_sequences,\
+                        attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
+                        note_time_mask_list=note_time_mask,\
+                        cxr_feats=cxr_feats,\
+                        cxr_time=cxr_time, \
+                        cxr_time_mask=cxr_time_mask,\
+                        ecg_feats=ecg_feats,\
+                        ecg_time=ecg_time, \
+                        ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
+                        cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                    )
+                    model.to_logits = model.to_logitslist[ii]
+                    indict={}
+                    for i in range(len(modalities[ii])):
+                        if unsqueezing[ii]:
+                            indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().unsqueeze(-1).to(device)
+                        elif transpose[ii]:
+                            indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device).transpose(1, 2)
+                        else:
+                            indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                    out = model(indict)
+                    if 'TS_PHENO' in modalities[int(ii)]:
+                        logit = torch.nn.functional.sigmoid(out)
+                    else:
+                        logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
+                    logit = logit.cpu().numpy()
+                    label_ids = label.cpu().numpy()
+                    eval_logits += logit.tolist()
+                    eval_labels += label_ids.tolist()
+
+                all_logits = np.array(eval_logits)
+                all_label = np.array(eval_labels)
+                # use auc score as picking best performing model metric
+                if 'TS_PHENO' in modalities[int(ii)]:
+                    eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
+                    accs += eval_vals['auc_scores'].mean()
+                else:
+                    eval_val = roc_auc_score(all_label, all_logits)
+                    accs += eval_val
+
+            if accs > bestacc:
+                bestacc = accs
+                torch.save(model, savedir)
+    
+    ### Testing function ###
+    model=torch.load(savedir).to(device)
+    testaccs=[]
+    with torch.no_grad():
+        rets=[[],[],[],[]]
+        print("\nTest...")
+        f = open("result.txt", 'a')
+        f.write("\n################## New Experiment ##################\n")
+        f.write(setting + "  \n")
+        for ii in tqdm(range(len(test))):
+            eval_vals={}
+            eval_logits = []
+            eval_labels = []
+            model.to_logits=model.to_logitslist[ii]
+            for jj in tqdm(test[ii]):
+                ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
+                embeddings = encoder(
+                    x_ts=ts_input_sequences, \
+                    x_ts_mask=ts_mask_sequences,\
+                    ts_tt_list=ts_tt,\
+                    input_ids_sequences=input_ids_sequences,\
+                    attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
+                    note_time_mask_list=note_time_mask,\
+                    cxr_feats=cxr_feats,\
+                    cxr_time=cxr_time, \
+                    cxr_time_mask=cxr_time_mask,\
+                    ecg_feats=ecg_feats,\
+                    ecg_time=ecg_time, \
+                    ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
+                    cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                )
+                indict={}
+                for i in range(0, len(modalities[ii])): # for each modality within that task
+                    if unsqueezing[ii]:
+                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().unsqueeze(-1).to(device)
+                    elif transpose[ii]:
+                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device).transpose(1,2)
+                    else:
+                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                out = model(indict)
+                if 'TS_PHENO' in modalities[int(ii)]:
+                    logit = torch.nn.functional.sigmoid(out)
+                else:
+                    logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
+                logits = logit.cpu().numpy()
+                labels = label.cpu().numpy()
+                eval_logits += logits.tolist()
+                eval_labels += labels.tolist()
+                if getattentionmap:
+                    rets[ii].append(model.attns)
+            all_logits = np.array(eval_logits)
+            all_label = np.array(eval_labels)
+            all_pred = np.where(all_logits > 0.5, 1, 0)
+            if 'TS_PHENO' in modalities[int(ii)]:
+                eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
+                eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
+            else:
+                eval_val = roc_auc_score(np.array(eval_labels), np.array(eval_logits))
+                eval_vals['auc'] = eval_val
+                (precisions, recalls, thresholds) = precision_recall_curve(np.array(eval_labels), np.array(eval_logits))
+                eval_val = auc(recalls, precisions)
+                eval_vals['auprc'] = eval_val
+                eval_val = f1_score(np.array(eval_labels), all_pred)
+                eval_vals['f1'] = eval_val
+            
+            f.write(f"------Task {ii}------\n")
+            for k, v in eval_vals.items():
+                f.write(k+': {}'.format(v))
+                f.write('\n')
+                f.write('\n')
+        f.close()
+    if getattentionmap:
+        return rets
+    return testaccs
