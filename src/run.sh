@@ -10,9 +10,10 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 2 \
                 --model_name "bioLongformer"\
                 --task 'ihm-pheno'\
                 --ihm_mod 'TS-Text-CXR'\
-                --los_mod ''\
-                --pheno_mod 'TS-Text-CXR'\
-                --file_path '/cis/home/xhan56/code/Multimodal-Transformer/src/Data/'\
+                --los_mod 'TS'\
+                --pheno_mod 'TS-Text'\
+                --mimic_path '/cis/home/xhan56/code/Multimodal-Transformer/src/Data/'\
+                --eicu_path '/cis/home/xhan56/code/hierarchical-moe/src/dataset/processed_data/'\
                 --num_heads 8\
                 --embed_time 64\
                 --tt_max 48\

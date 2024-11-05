@@ -32,7 +32,10 @@ def parse_args():
             "--task", type=str, default="ihm-los-pheno"
         )
     parser.add_argument(
-        "--file_path", type=str, default="/cis/home/xhan56/code/Multimodal-Transformer/src/Data/ihm", help="A path to dataset folder"
+        "--mimic_path", type=str, default="/cis/home/xhan56/code/Multimodal-Transformer/src/Data/ihm", help="A path to dataset folder"
+    )
+    parser.add_argument(
+        "--eicu_path", type=str, default="/cis/home/xhan56/code/hierarchical-moe/src/dataset/processed_data", help="A path to dataset folder"
     )
     parser.add_argument("--ihm_mod", type=str, default='', help="Modality compoenents for IHM task.")
     parser.add_argument("--los_mod", type=str, default='', help="Modality compoenents for LOS task.")
