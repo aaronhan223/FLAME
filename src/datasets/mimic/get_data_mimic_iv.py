@@ -22,13 +22,12 @@ def data_prepare(args, task, tokenizer, modeltype, data=None):
         sampler (object): The sampler object.
         dataloader (object): The dataloader object.
     """
-    # TODO: the dataset that is passed into should distinguish train val and test
     train_dataset = TSNote_Irg(args, 'train', task, tokenizer, modeltype, data=data)
     val_dataset = TSNote_Irg(args, 'val', task, tokenizer, modeltype, data=data)
     test_dataset = TSNote_Irg(args, 'test', task, tokenizer, modeltype, data=data)
 
     train_sampler = RandomSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size, collate_fn=TextTSIrgcollate_fn)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_bs_mimic, collate_fn=TextTSIrgcollate_fn)
 
     val_sampler = SequentialSampler(val_dataset)
     val_dataloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=args.eval_batch_size, collate_fn=TextTSIrgcollate_fn)
@@ -110,10 +109,10 @@ class TSNote_Irg(Dataset):
         if data != None:
             self.data = data
         else:
-            self.data = load_data(file_path=args.file_path + task, mode=mode, debug=args.debug, task=self.task)
+            self.data = load_data(file_path=args.mimic_path + task, mode=mode, debug=args.debug, task=self.task)
         self.chunk = args.chunk
         if self.chunk:
-            self.text_id_attn_data = load_data(file_path=args.file_path + task, mode=mode, text=True, task=self.task)
+            self.text_id_attn_data = load_data(file_path=args.mimic_path + task, mode=mode, text=True, task=self.task)
         self.padding = "max_length" if args.pad_to_max_length  else False
 
         if mode=="train":

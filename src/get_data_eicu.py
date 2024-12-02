@@ -2,10 +2,11 @@ import os
 from typing import List
 import random
 import logging
-import pickle
+import dill as pickle
 import numpy as np
 import torch
 from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, Dataset
 
 
 def read_txt(filename):
@@ -44,6 +45,26 @@ def to_index(sequence: List[str], vocab, prefix="", suffix=""):
     return sequence
 
 
+def collate_fn(data):
+    data = {k: [d[k] for d in data] for k in data[0]}
+    data["age"] = torch.stack(data["age"])
+    data["gender"] = torch.stack(data["gender"])
+    data["ethnicity"] = torch.stack(data["ethnicity"])
+    # padding
+    data["timestamps"] = torch.nn.utils.rnn.pad_sequence(
+        data["timestamps"], batch_first=True, padding_value=0
+    )
+    data["types"] = torch.nn.utils.rnn.pad_sequence(
+        data["types"], batch_first=True, padding_value=0
+    )
+    data["codes"] = torch.nn.utils.rnn.pad_sequence(
+        data["codes"], batch_first=True, padding_value=0
+    )
+    data["mortality"] = torch.stack(data["mortality"])
+    data["readmission"] = torch.stack(data["readmission"])
+    return data
+
+
 class Vocabulary(object):
 
     def __init__(self, init_words=None):
@@ -75,18 +96,18 @@ class Vocabulary(object):
 
 class eICUTokenizer:
     def __init__(self, processed_data_path):
+        self.processed_data_path = processed_data_path
         self.code_vocabs, self.code_vocabs_size, self.code_embeddings = self._load_code_vocabs()
         self.type_vocabs, self.type_vocabs_size = self._load_type_vocabs()
         self.age_vocabs, self.age_vocabs_size = self._load_age_vocabs()
         self.gender_vocabs, self.gender_vocabs_size = self._load_gender_vocabs()
         self.ethnicity_vocabs, self.ethnicity_vocabs_size = self._load_ethnicity_vocabs()
-        self.processed_data_path = processed_data_path
 
     def _load_code_vocabs(self):
-        vocab_dir = os.path.join(self.processed_data_path, f"eicu/vocab.pkl")
+        vocab_dir = os.path.join(self.processed_data_path, f"vocab.pkl")
         vocabs = load_pickle(vocab_dir)
         vocabs_size = len(vocabs)
-        embeddings = read(os.path.join(self.processed_data_path, f"eicu/embeddings.txt"))
+        embeddings = read(os.path.join(self.processed_data_path, f"embeddings.txt"))
         return vocabs, vocabs_size, embeddings
 
     def _load_type_vocabs(self):
@@ -150,15 +171,11 @@ class eICUTokenizer:
 
 
 class eICUDataset(Dataset):
-    def __init__(self, split, processed_data_path=None, dev=False, return_raw=False):
-        if dev:
-            assert split == "train"
+    def __init__(self, split, processed_data_path=None, return_raw=False):
         self.split = split
-        self.all_icu_stay_dict = load_pickle(os.path.join(processed_data_path, "eicu/icu_stay_dict.pkl"))
+        self.all_icu_stay_dict = load_pickle(os.path.join(processed_data_path, "icu_stay_dict.pkl"))
         self.split_icu_ids = []
-        self.split_icu_ids.extend(read_txt(f"./datasets/eicu/{split}_icu_ids.txt"))
-        if dev:
-            self.split_icu_ids = self.split_icu_ids[:10000]
+        self.split_icu_ids.extend(read_txt(os.path.join(processed_data_path, f"{split}_icu_ids.txt")))
         self.return_raw = return_raw
         self.tokenizer = eICUTokenizer(processed_data_path)
 
@@ -202,3 +219,55 @@ class eICUDataset(Dataset):
         return_dict["readmission"] = readmission
 
         return return_dict
+
+
+def data_prepare(args):
+    train_dataset = eICUDataset(split='train', processed_data_path=args.eicu_path)
+    val_dataset = eICUDataset(split='val', processed_data_path=args.eicu_path)
+    test_dataset = eICUDataset(split='test', processed_data_path=args.eicu_path)
+
+    train_sampler = RandomSampler(train_dataset)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_bs_eicu, collate_fn=collate_fn)
+
+    val_sampler = SequentialSampler(val_dataset)
+    val_dataloader = DataLoader(val_dataset, sampler=val_sampler, batch_size=args.eval_batch_size, collate_fn=collate_fn)
+
+    test_sampler = SequentialSampler(test_dataset)
+    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=args.eval_batch_size, collate_fn=collate_fn)
+
+    return train_dataloader, val_dataloader, test_dataloader, train_dataset.tokenizer
+
+
+if __name__ == "__main__":
+
+    import argparse
+    from tqdm import tqdm
+    import sys
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import pdb
+    
+    def parse_args():
+        parser = argparse.ArgumentParser(description="Alignment text and ts data")
+        parser.add_argument(
+            "--eicu_path", type=str, default="./datasets/eicu/processed", help="A path to dataset folder"
+        )
+        parser.add_argument(
+            "--train_batch_size",
+            type=int,
+            default=8,
+            help="Batch size for the training dataloader.",
+        )
+        parser.add_argument(
+            "--eval_batch_size",
+            type=int,
+            default=32,
+            help="Batch size for the evaluation dataloader.",
+        )
+        args = parser.parse_args()
+        return args
+    
+    args = parse_args()
+    train, valid, test = data_prepare(args=args)
+    for i, batch in enumerate(tqdm(train)):
+        y = batch
+        pdb.set_trace()

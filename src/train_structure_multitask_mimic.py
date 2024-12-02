@@ -20,10 +20,8 @@ def train(
     lr=0.001,
     weight_decay=0.0, 
     optimizer=torch.optim.Adam, 
-    unsqueezing=[True,True], 
     device="cuda:0",
-    train_weights=[1.0,1.0],
-    transpose=[False,False],
+    train_weights=[1.0, 1.0],
     recon=False, 
     recon_weight=1, 
     recon_criterion=torch.nn.MSELoss(),
@@ -50,38 +48,50 @@ def train(
                 j[-1] = (j[-1] + 1) % classesnum[i]
             count += 1
     # fulltrains.reverse()
-    fulltrains=fulltrains[start_from:]
+    # fulltrains=fulltrains[start_from:]
+    task_names = {'MOR': 'mortality', 'RAD': 'readmission'}
     for ep in range(args.num_train_epochs):
         print(f'\nTraining epoch {ep}/{args.num_train_epochs}...')
         for js in tqdm(fulltrains): # for each sample
             optim.zero_grad()
             losses=0.0
             for ii in js: # for each task
-                ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = js[ii]
-                embeddings = encoder(
-                    x_ts=ts_input_sequences, \
-                    x_ts_mask=ts_mask_sequences,\
-                    ts_tt_list=ts_tt,\
-                    input_ids_sequences=input_ids_sequences,\
-                    attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
-                    note_time_mask_list=note_time_mask,\
-                    cxr_feats=cxr_feats,\
-                    cxr_time=cxr_time, \
-                    cxr_time_mask=cxr_time_mask,\
-                    ecg_feats=ecg_feats,\
-                    ecg_time=ecg_time, \
-                    ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
-                    cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
-                )
+                task = modalities[int(ii)][0].split('_')[1]
+                if task in ['IHM', 'PHENO', 'LOS']:
+                    ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = js[ii]
+                    # MIMIC-IV encoders
+                    embeddings = encoder[task](
+                        x_ts=ts_input_sequences, \
+                        x_ts_mask=ts_mask_sequences,\
+                        ts_tt_list=ts_tt,\
+                        input_ids_sequences=input_ids_sequences,\
+                        attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
+                        note_time_mask_list=note_time_mask,\
+                        cxr_feats=cxr_feats,\
+                        cxr_time=cxr_time, \
+                        cxr_time_mask=cxr_time_mask,\
+                        ecg_feats=ecg_feats,\
+                        ecg_time=ecg_time, \
+                        ecg_time_mask=ecg_time_mask, labels=label, reg_ts=reg_ts,\
+                        cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                    )
+                elif task in ['MOR', 'RAD']:
+                    # TODO: work on eicu only for perceiver first, use each type as a modality, does it make sense for different separation category for each dataset?
+                    # keep encoders, replace classifiers with perceivers
+                    codes, types, timestamps, ages, genders, ethnicities, label = js[ii]['codes'], js[ii]['types'], js[ii]['timestamps'], js[ii]['age'], js[ii]['gender'], js[ii]['ethnicity'], js[ii][task_names[task]].long()
+                    embeddings = encoder[task](
+                        codes=codes,
+                        types=types,
+                        timestamps=timestamps,
+                        ages=ages,
+                        genders=genders,
+                        ethnicities=ethnicities,
+                        modalities=modalities[int(ii)]
+                    )
                 model.to_logits = model.to_logitslist[int(ii)]
                 indict={}
                 for i in range(len(modalities[int(ii)])):
-                    if unsqueezing[int(ii)]:
-                        indict[modalities[int(ii)][i]]=js[ii][i].float().unsqueeze(-1).to(device)
-                    elif transpose[int(ii)]:
-                        indict[modalities[ii][i]]=j[i].float().to(device).transpose(1,2)
-                    else:
-                        indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
+                    indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
 
                 if recon:
                     out, rec = model(indict, use_recon=True)
@@ -106,34 +116,42 @@ def train(
             eval_vals={}
             print("\nValidation...")
             for ii in tqdm(range(len(valid))): # for each task
+                task = modalities[int(ii)][0].split('_')[1]
                 eval_logits = []
                 eval_labels = []
                 for jj in tqdm(valid[ii]): # for each sample
-                    ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
-                    embeddings = encoder(
-                        x_ts=ts_input_sequences, \
-                        x_ts_mask=ts_mask_sequences,\
-                        ts_tt_list=ts_tt,\
-                        input_ids_sequences=input_ids_sequences,\
-                        attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
-                        note_time_mask_list=note_time_mask,\
-                        cxr_feats=cxr_feats,\
-                        cxr_time=cxr_time, \
-                        cxr_time_mask=cxr_time_mask,\
-                        ecg_feats=ecg_feats,\
-                        ecg_time=ecg_time, \
-                        ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
-                        cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
-                    )
+                    if task in ['IHM', 'PHENO', 'LOS']:
+                        ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
+                        embeddings = encoder[task](
+                            x_ts=ts_input_sequences, \
+                            x_ts_mask=ts_mask_sequences,\
+                            ts_tt_list=ts_tt,\
+                            input_ids_sequences=input_ids_sequences,\
+                            attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
+                            note_time_mask_list=note_time_mask,\
+                            cxr_feats=cxr_feats,\
+                            cxr_time=cxr_time, \
+                            cxr_time_mask=cxr_time_mask,\
+                            ecg_feats=ecg_feats,\
+                            ecg_time=ecg_time, \
+                            ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
+                            cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                        )
+                    elif task in ['MOR', 'RAD']:
+                        codes, types, timestamps, ages, genders, ethnicities, label = jj['codes'], jj['types'], jj['timestamps'], jj['age'], jj['gender'], jj['ethnicity'], jj[task_names[task]].long()
+                        embeddings = encoder[task](
+                            codes=codes,
+                            types=types,
+                            timestamps=timestamps,
+                            ages=ages,
+                            genders=genders,
+                            ethnicities=ethnicities,
+                            modalities=modalities[int(ii)]
+                        )
                     model.to_logits = model.to_logitslist[ii]
                     indict={}
                     for i in range(len(modalities[ii])):
-                        if unsqueezing[ii]:
-                            indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().unsqueeze(-1).to(device)
-                        elif transpose[ii]:
-                            indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device).transpose(1, 2)
-                        else:
-                            indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
                     out = model(indict)
                     if 'TS_PHENO' in modalities[int(ii)]:
                         logit = torch.nn.functional.sigmoid(out)
@@ -171,32 +189,40 @@ def train(
             eval_vals={}
             eval_logits = []
             eval_labels = []
+            task = modalities[int(ii)][0].split('_')[1]
             model.to_logits=model.to_logitslist[ii]
             for jj in tqdm(test[ii]):
-                ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
-                embeddings = encoder(
-                    x_ts=ts_input_sequences, \
-                    x_ts_mask=ts_mask_sequences,\
-                    ts_tt_list=ts_tt,\
-                    input_ids_sequences=input_ids_sequences,\
-                    attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
-                    note_time_mask_list=note_time_mask,\
-                    cxr_feats=cxr_feats,\
-                    cxr_time=cxr_time, \
-                    cxr_time_mask=cxr_time_mask,\
-                    ecg_feats=ecg_feats,\
-                    ecg_time=ecg_time, \
-                    ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
-                    cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
-                )
+                if task in ['IHM', 'PHENO', 'LOS']:
+                    ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
+                    embeddings = encoder[task](
+                        x_ts=ts_input_sequences, \
+                        x_ts_mask=ts_mask_sequences,\
+                        ts_tt_list=ts_tt,\
+                        input_ids_sequences=input_ids_sequences,\
+                        attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
+                        note_time_mask_list=note_time_mask,\
+                        cxr_feats=cxr_feats,\
+                        cxr_time=cxr_time, \
+                        cxr_time_mask=cxr_time_mask,\
+                        ecg_feats=ecg_feats,\
+                        ecg_time=ecg_time, \
+                        ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
+                        cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                    )
+                elif task in ['MOR', 'RAD']:
+                    codes, types, timestamps, ages, genders, ethnicities, label = jj['codes'], jj['types'], jj['timestamps'], jj['age'], jj['gender'], jj['ethnicity'], jj[task_names[task]].long()
+                    embeddings = encoder[task](
+                        codes=codes,
+                        types=types,
+                        timestamps=timestamps,
+                        ages=ages,
+                        genders=genders,
+                        ethnicities=ethnicities,
+                        modalities=modalities[int(ii)]
+                    )
                 indict={}
                 for i in range(0, len(modalities[ii])): # for each modality within that task
-                    if unsqueezing[ii]:
-                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().unsqueeze(-1).to(device)
-                    elif transpose[ii]:
-                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device).transpose(1,2)
-                    else:
-                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                    indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
                 out = model(indict)
                 if 'TS_PHENO' in modalities[int(ii)]:
                     logit = torch.nn.functional.sigmoid(out)

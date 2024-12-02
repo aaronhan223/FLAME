@@ -156,11 +156,13 @@ class MultiModalityPerceiver(nn.Module):
             for _, modality_name in enumerate(sorted(multi_modality_data.keys())):
                 #assert modality_name in self.modalities, f"modality {modality_name} was not defined in constructor"
                 data = multi_modality_data[modality_name]
-                modality,modality_index = findmodalityandindex(self.modalities,modality_name)
+                modality, modality_index = findmodalityandindex(self.modalities, modality_name)
                 if source_mode != None:
                     _, source_index = findmodalityandindex(self.modalities, source_mode)
 
                 b, *axis, _, device = *data.shape, data.device
+                # b, *axis, device = *data.shape, data.device
+                # TODO: check this for MIMIC-IV, whether the _ part can be removed
                 assert len(
                     axis) == modality.input_axis, f'input data must have the right number of  for modality {modality_name}. ' \
                                               f'Expected {modality.input_axis} while forward argument offered {len(axis)}'
@@ -170,8 +172,7 @@ class MultiModalityPerceiver(nn.Module):
 
                 axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device), axis))
                 pos = torch.stack(torch.meshgrid(*axis_pos), dim=-1)
-                enc_pos = fourier_encode(pos,
-                                     modality.max_freq, modality.num_freq_bands, modality.freq_base)
+                enc_pos = fourier_encode(pos, modality.max_freq, modality.num_freq_bands, modality.freq_base)
                 enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
                 enc_pos = repeat(enc_pos, '... -> b ...', b=b)
 

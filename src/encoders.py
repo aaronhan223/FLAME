@@ -2,7 +2,8 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
+from layer import RelTemporalEncoding, TransformerBlock
+# from utils import count_parameters
 import pdb
 
 
@@ -173,7 +174,7 @@ class ModalityEncoders(nn.Module):
                 self.orig_reg_d_ts=orig_reg_d_ts
                 self.proj_ts = nn.Conv1d(self.orig_reg_d_ts, self.d_ts, kernel_size=self.kernel_size, padding=math.floor((self.kernel_size -1) / 2), bias=False).to(self.device)
             if self.TS_mixup:
-                self.moe =gateMLP(input_dim=self.d_ts*2,hidden_size=args.embed_dim,output_dim=1,dropout=self.dropout).to(self.device)
+                self.moe = gateMLP(input_dim=self.d_ts*2,hidden_size=args.embed_dim,output_dim=1,dropout=self.dropout).to(self.device)
         
         if "Text" in self.modalities:
             self.orig_d_txt = orig_d_txt
@@ -250,3 +251,122 @@ class ModalityEncoders(nn.Module):
                 embeddings[modalities[idx]] = proj_x_ecg
 
         return embeddings
+
+
+def batch_to_multihot(x, num_labels):
+    batch_size = x.shape[0]
+    seq_len = x.shape[1]
+    multihot_x = torch.zeros(batch_size, seq_len, num_labels).to(x.device)
+    multihot_x[torch.arange(batch_size).unsqueeze(1).repeat(1, seq_len),
+    torch.arange(seq_len).repeat(batch_size, 1), x] = 1
+    return multihot_x
+
+
+class FSEncoder(nn.Module):
+    def __init__(
+            self,
+            tokenizer,
+            embedding_size: int,
+            pretrained_embedding: bool,
+            dropout: float,
+            layers: int,
+            heads: int,
+            hidden_size: int,
+            device="cpu"
+    ):
+        super(FSEncoder, self).__init__()
+        self.tokenizer = tokenizer
+        self.embedding_size = embedding_size
+        self.pretrained_embedding = pretrained_embedding
+        self.dropout = dropout
+        self.layers = layers
+        self.heads = heads
+        self.hidden_size = hidden_size
+        self.device = device
+
+        # embedding
+        if pretrained_embedding:
+            mm = torch.Tensor(self.tokenizer.code_embeddings)
+            assert self.tokenizer.code_vocabs_size == mm.shape[0]
+            self.code_embedding = nn.Sequential(
+                nn.Embedding(self.tokenizer.code_vocabs_size, mm.shape[1]),
+                nn.Linear(mm.shape[1], embedding_size)
+            ).to(self.device)
+            self.code_embedding[0].weight.data.copy_(mm)
+            self.code_embedding[0].weight.requires_grad = False
+        else:
+            self.code_embedding = nn.Embedding(self.tokenizer.code_vocabs_size, embedding_size, padding_idx=0).to(self.device)
+        self.type_embedding = nn.Embedding(self.tokenizer.type_vocabs_size, embedding_size, padding_idx=0).to(self.device)
+        self.timestamp_embedding = RelTemporalEncoding(embedding_size).to(self.device)
+        self.age_embedding = nn.Embedding(self.tokenizer.age_vocabs_size, embedding_size, padding_idx=0).to(self.device)
+        self.gender_embedding = nn.Embedding(self.tokenizer.gender_vocabs_size, embedding_size, padding_idx=0).to(self.device)
+        self.ethnicity_embedding = nn.Embedding(self.tokenizer.ethnicity_vocabs_size, embedding_size, padding_idx=0).to(self.device)
+
+        # encoder
+        self.transformer = nn.ModuleList([TransformerBlock(embedding_size, heads, dropout) for _ in range(layers)]).to(self.device)
+        self.dropout = nn.Dropout(dropout)
+        self.projector = nn.Linear(embedding_size, hidden_size).to(self.device)
+
+        # aggregator
+        self.num_event_types = self.tokenizer.type_vocabs_size
+        self.num_fake_event_types = len(self.tokenizer.type_vocabs.init_words)
+
+        # print(f"# of params: {count_parameters(self)}")
+
+    @property
+    def num_types(self):
+        return self.num_event_types - self.num_fake_event_types + 1
+
+    def forward(
+            self, codes, types, timestamps, ages, genders, ethnicities, modalities
+    ):
+        codes = codes.to(self.device)
+        types = types.to(self.device)
+        timestamps = timestamps.to(self.device)
+        ages = ages.to(self.device)
+        genders = genders.to(self.device)
+        ethnicities = ethnicities.to(self.device)
+
+        mask = (types != 0)
+        mask = torch.einsum("ab,ac->abc", mask, mask)
+        """ embedding """
+        # [# admissions, # batch_codes, embedding_size]
+        codes_emb = self.code_embedding(codes)
+        types_emb = self.type_embedding(types)
+        timestamps_emb = self.timestamp_embedding(timestamps) / math.sqrt(self.embedding_size)
+        ages_emb = self.age_embedding(ages)
+        genders_emb = self.gender_embedding(genders)
+        ethnicities_emb = self.ethnicity_embedding(ethnicities)
+        demographics_emb = (ages_emb + genders_emb + ethnicities_emb).unsqueeze(1)
+        emb = codes_emb + types_emb + timestamps_emb + demographics_emb
+        # sum every embedding
+        emb[mask.sum(dim=-1) == 0] = 0
+
+        """ transformer """
+        x = emb
+        for transformer in self.transformer:
+            x = transformer(x, mask)  # [# admissions, # batch_codes, embedding_size]
+        x = self.dropout(x)
+        x = self.projector(x)  # [# admissions, # batch_codes, hidden_size]
+        cls_emb = x[:, 0, :]
+
+        """ aggregate """
+        types_multihot = batch_to_multihot(types, self.num_event_types)
+        mask = (types != 0)
+        types_multihot[~mask] = 0
+
+        group_count = torch.sum(types_multihot, dim=1)
+        inv_group_count = nn.functional.normalize(types_multihot, p=1, dim=1)
+        type_representations = torch.matmul(inv_group_count.transpose(1, 2), x)
+        type_representations[:, 0, :] = cls_emb
+        type_representations[group_count == 0] = torch.repeat_interleave(cls_emb, (group_count == 0).sum(dim=1), dim=0)
+        type_representations = type_representations.permute(1, 0, 2)  # [# types, # admissions, hidden_size]
+        select = [False] * self.num_fake_event_types + [True] * (self.num_event_types - self.num_fake_event_types)
+        select[0] = True
+        type_representations = type_representations[select]
+        
+        embedding = {}
+        for i in range(type_representations.shape[0]):
+            embedding[modalities[i]] = type_representations[i].unsqueeze(0).permute(1, 0, 2)
+        return embedding
+

@@ -2,16 +2,17 @@ import sys
 import os
 import argparse
 sys.path.insert(1,os.getcwd())
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crossattnperceiver import MultiModalityPerceiver, InputModality
 from train_structure_multitask_mimic import train
-from encoders import ModalityEncoders
-import torch
-import pdb
-
+from encoders import ModalityEncoders, FSEncoder
+from utils import create_directory, dump_pickle
+from preprocess.preprocess_eicu import *
 import torch
 from accelerate import Accelerator
 torch.multiprocessing.set_sharing_strategy('file_system')
-from datasets.mimic.get_data_mimic_iv import data_prepare
+from datasets.mimic.get_data_mimic_iv import data_prepare as prepare_mimic
+from get_data_eicu import data_prepare as prepare_eicu
 from transformers import (AutoTokenizer,
                           AutoModel,
                           AutoConfig,
@@ -35,11 +36,13 @@ def parse_args():
         "--mimic_path", type=str, default="/cis/home/xhan56/code/Multimodal-Transformer/src/Data/ihm", help="A path to dataset folder"
     )
     parser.add_argument(
-        "--eicu_path", type=str, default="/cis/home/xhan56/code/hierarchical-moe/src/dataset/processed_data", help="A path to dataset folder"
+        "--eicu_path", type=str, default="/cis/home/xhan56/code/clinical-highmmt/src/datasets/eicu/processed", help="A path to dataset folder"
     )
     parser.add_argument("--ihm_mod", type=str, default='', help="Modality compoenents for IHM task.")
     parser.add_argument("--los_mod", type=str, default='', help="Modality compoenents for LOS task.")
     parser.add_argument("--pheno_mod", type=str, default='', help="Modality compoenents for PHENO task.")
+    parser.add_argument("--rad_mod", type=str, default='', help="Modality compoenents for readmission task.")
+    parser.add_argument("--mor_mod", type=str, default='', help="Modality compoenents for mortality task.")
 
     parser.add_argument("--tensorboard_dir", type=str, default=None, help="Where to store the final model.")
 
@@ -54,10 +57,16 @@ def parse_args():
     parser.add_argument( "--model_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
-        "--train_batch_size",
+        "--train_bs_mimic",
         type=int,
         default=8,
-        help="Batch size  for the training dataloader.",
+        help="Batch size for the mimic training dataloader.",
+    )
+    parser.add_argument(
+        "--train_bs_eicu",
+        type=int,
+        default=8,
+        help="Batch size for the eicu training dataloader.",
     )
     parser.add_argument(
         "--eval_batch_size",
@@ -111,6 +120,7 @@ def parse_args():
     parser.add_argument("--cross_layers", type=int, default=3, help="Number of transformer cross encoder layer.")
     parser.add_argument("--embed_dim", default=30, type=int, help="attention embedding dim.")
     parser.add_argument("--perceiver_dim", default=64, type=int, help="perceiver latent dimension.")
+    parser.add_argument("--hidden_size", default=128, type=int, help="linear layer hidden unit size.")
 
     parser.add_argument("--irregular_learn_emb_ts", action='store_true')
     parser.add_argument("--irregular_learn_emb_text", action='store_true')
@@ -175,221 +185,385 @@ def loadBert(args,device):
     BioBertConfig = BioBert.config
     return BioBert, BioBertConfig, tokenizer
 
-args = parse_args()
-if args.fp16:
-    args.mixed_precision = "fp16"
-else:
-    args.mixed_precision = "no"
-accelerator = Accelerator(mixed_precision=args.mixed_precision, cpu=args.cpu)
-device = accelerator.device
+def main():
+    args = parse_args()
+    if args.fp16:
+        args.mixed_precision = "fp16"
+    else:
+        args.mixed_precision = "no"
+    accelerator = Accelerator(mixed_precision=args.mixed_precision, cpu=args.cpu)
+    device = accelerator.device
 
-modalities = set()
-if len(args.ihm_mod) != 0:
-    for e in args.ihm_mod.split("-"):
-        modalities.add(e)
-if len(args.los_mod) != 0:
-    for e in args.los_mod.split("-"):
-        modalities.add(e)
-if len(args.pheno_mod) != 0:
-    for e in args.pheno_mod.split("-"):
-        modalities.add(e)
-modalities = [*modalities]
-modalities.sort()
+    modalities = set()
+    if len(args.ihm_mod) != 0 and 'ihm' in args.task:
+        for e in args.ihm_mod.split("-"):
+            modalities.add(e)
+    if len(args.los_mod) != 0 and 'los' in args.task:
+        for e in args.los_mod.split("-"):
+            modalities.add(e)
+    if len(args.pheno_mod) != 0 and 'pheno' in args.task:
+        for e in args.pheno_mod.split("-"):
+            modalities.add(e)
+    modeltype = ''
+    modals = [*modalities]
+    modals.sort()
+    for m in modals:
+        modeltype = modeltype + m + '_'
+    modeltype = modeltype[:-1]
 
-modeltype = ''
-for m in modalities:
-    modeltype = modeltype + m + '_'
-modeltype = modeltype[:-1]
+    if len(args.rad_mod) != 0 and 'readmission' in args.task:
+        for e in args.rad_mod.split("-"):
+            modalities.add(e)
+    if len(args.mor_mod) != 0 and 'mortality' in args.task:
+        for e in args.mor_mod.split("-"):
+            modalities.add(e)
+    modalities = [*modalities]
 
-if 'Text' in modeltype:
-    BioBert, BioBertConfig, tokenizer = loadBert(args, device)
-else:
-    tokenizer = None
+    if 'Text' in modeltype:
+        BioBert, BioBertConfig, tokenizer = loadBert(args, device)
+    else:
+        tokenizer = None
 
-tasks = args.task.split("-")
-all_train = []
-all_valid = []
-all_test = []
-criterion = []
-modalities_per_task = []
-logits = torch.nn.ModuleList()
-if 'ihm' in tasks:
-    train_ihm, valid_ihm, test_ihm = data_prepare(args=args, task='ihm', tokenizer=tokenizer, modeltype=modeltype)
-    all_train.append(train_ihm)
-    all_valid.append(valid_ihm)
-    all_test.append(test_ihm)
-    criterion.append(torch.nn.CrossEntropyLoss())
-    ihm_mods = list(map(lambda s: s + '_IHM', args.ihm_mod.split("-")))
-    assert len(ihm_mods) > 1, "At least two modalities per task!"
-    modalities_per_task.append(ihm_mods)
-    logit_dim = len(ihm_mods) * (len(ihm_mods) - 1) * args.perceiver_dim
-    logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
-if 'los' in tasks:
-    train_los, valid_los, test_los = data_prepare(args=args, task='los', tokenizer=tokenizer, modeltype=modeltype)
-    all_train.append(train_los)
-    all_valid.append(valid_los)
-    all_test.append(test_los)
-    criterion.append(torch.nn.CrossEntropyLoss())
-    los_mods = list(map(lambda s: s + '_LOS', args.los_mod.split("-")))
-    assert len(los_mods) > 1, "At least two modalities per task!"
-    modalities_per_task.append(los_mods)
-    logit_dim = len(los_mods) * (len(los_mods) - 1) * args.perceiver_dim
-    logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
-if 'pheno' in tasks:
-    train_pheno, valid_pheno, test_pheno = data_prepare(args=args, task='pheno', tokenizer=tokenizer, modeltype=modeltype)
-    all_train.append(train_pheno)
-    all_valid.append(valid_pheno)
-    all_test.append(test_pheno)
-    criterion.append(torch.nn.BCEWithLogitsLoss())
-    pheno_mods = list(map(lambda s: s + '_PHENO', args.pheno_mod.split("-")))
-    assert len(pheno_mods) > 1, "At least two modalities per task!"
-    modalities_per_task.append(pheno_mods)
-    logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
-    logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 25)))
+    tasks = args.task.split("-")
+    all_train = []
+    all_valid = []
+    all_test = []
+    criterion = []
+    modalities_per_task = []
+    train_weights = []
+    all_encoders = {}
+    logits = torch.nn.ModuleList()
 
-all_modalities = {}
-all_modalities['Text_IHM'] = InputModality(
-    name='Text_IHM',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1
-)
-all_modalities['TS_IHM'] = InputModality(
-    name='TS_IHM',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1
-)
-all_modalities['CXR_IHM'] = InputModality(
-    name='CXR_IHM',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1.
-)
-all_modalities['ECG_IHM'] = InputModality(
-    name='ECG_IHM',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1.
-)
-all_modalities['Text_LOS'] = InputModality(
-    name='Text_LOS',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1
-)
-all_modalities['TS_LOS'] = InputModality(
-    name='TS_LOS',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1
-)
-all_modalities['CXR_LOS'] = InputModality(
-    name='CXR_LOS',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1.
-)
-all_modalities['ECG_LOS'] = InputModality(
-    name='ECG_LOS',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1.
-)
-all_modalities['Text_PHENO'] = InputModality(
-    name='Text_PHENO',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1
-)
-all_modalities['TS_PHENO'] = InputModality(
-    name='TS_PHENO',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1
-)
-all_modalities['CXR_PHENO'] = InputModality(
-    name='CXR_PHENO',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1.
-)
-all_modalities['ECG_PHENO'] = InputModality(
-    name='ECG_PHENO',
-    input_channels=args.embed_dim,
-    input_axis=1,
-    num_freq_bands=6,
-    max_freq=1.
-)
-perceiver_mod = []
-for t in modalities_per_task:
-    for m in t:
-        perceiver_mod.append(all_modalities[m])
+    if 'ihm' in tasks:
+        train_ihm, valid_ihm, test_ihm = prepare_mimic(args=args, task='ihm', tokenizer=tokenizer, modeltype=modeltype)
+        all_train.append(train_ihm)
+        all_valid.append(valid_ihm)
+        all_test.append(test_ihm)
+        criterion.append(torch.nn.CrossEntropyLoss())
+        train_weights.append(1.0)
+        ihm_mods = list(map(lambda s: s + '_IHM', args.ihm_mod.split("-")))
+        assert len(ihm_mods) > 1, "At least two modalities per task!"
+        modalities_per_task.append(ihm_mods)
+        logit_dim = len(ihm_mods) * (len(ihm_mods) - 1) * args.perceiver_dim
+        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        ihm_encoder = ModalityEncoders(
+            args, 
+            device, 
+            modalities, 
+            args.tt_max, 
+            args.num_of_notes, 
+            BioBert
+        )
+        all_encoders['IHM'] = ihm_encoder
+    
+    if 'los' in tasks:
+        train_los, valid_los, test_los = prepare_mimic(args=args, task='los', tokenizer=tokenizer, modeltype=modeltype)
+        all_train.append(train_los)
+        all_valid.append(valid_los)
+        all_test.append(test_los)
+        criterion.append(torch.nn.CrossEntropyLoss())
+        train_weights.append(1.0)
+        los_mods = list(map(lambda s: s + '_LOS', args.los_mod.split("-")))
+        assert len(los_mods) > 1, "At least two modalities per task!"
+        modalities_per_task.append(los_mods)
+        logit_dim = len(los_mods) * (len(los_mods) - 1) * args.perceiver_dim
+        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        los_encoder = ModalityEncoders(
+            args, 
+            device, 
+            modalities, 
+            args.tt_max, 
+            args.num_of_notes, 
+            BioBert
+        )
+        all_encoders['LOS'] = los_encoder
+    
+    if 'pheno' in tasks:
+        train_pheno, valid_pheno, test_pheno = prepare_mimic(args=args, task='pheno', tokenizer=tokenizer, modeltype=modeltype)
+        all_train.append(train_pheno)
+        all_valid.append(valid_pheno)
+        all_test.append(test_pheno)
+        criterion.append(torch.nn.BCEWithLogitsLoss())
+        train_weights.append(1.0)
+        pheno_mods = list(map(lambda s: s + '_PHENO', args.pheno_mod.split("-")))
+        assert len(pheno_mods) > 1, "At least two modalities per task!"
+        modalities_per_task.append(pheno_mods)
+        logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
+        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 25)))
+        pheno_encoder = ModalityEncoders(
+            args, 
+            device, 
+            modalities, 
+            args.tt_max, 
+            args.num_of_notes, 
+            BioBert
+        )
+        all_encoders['PHENO'] = pheno_encoder
+    
+    if 'readmission' in tasks:
+        train_rad, valid_rad, test_rad, tokenizer_rad = prepare_eicu(args=args)
+        all_train.append(train_rad)
+        all_valid.append(valid_rad)
+        all_test.append(test_rad)
+        criterion.append(torch.nn.CrossEntropyLoss())
+        train_weights.append(1.0)
+        rad_mods = list(map(lambda s: s + '_RAD', args.rad_mod.split("-")))
+        modalities_per_task.append(rad_mods)
+        logit_dim = len(rad_mods) * (len(rad_mods) - 1) * args.perceiver_dim
+        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        readmission_encoder = FSEncoder(
+            tokenizer=tokenizer_rad,
+            embedding_size=args.embed_dim,
+            pretrained_embedding=args.use_pt_text_embeddings,
+            dropout=args.dropout,
+            layers=args.layers,
+            heads=args.num_heads,
+            hidden_size=args.hidden_size,
+            device=device
+        )
+        all_encoders['RAD'] = readmission_encoder
+    
+    if 'mortality' in tasks:
+        train_mor, valid_mor, test_mor, tokenizer_mor = prepare_eicu(args=args)
+        all_train.append(train_mor)
+        all_valid.append(valid_mor)
+        all_test.append(test_mor)
+        criterion.append(torch.nn.CrossEntropyLoss())
+        train_weights.append(1.0)
+        mor_mods = list(map(lambda s: s + '_MOR', args.mor_mod.split("-")))
+        modalities_per_task.append(mor_mods)
+        logit_dim = len(mor_mods) * (len(mor_mods) - 1) * args.perceiver_dim
+        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        mortality_encoder = FSEncoder(
+            tokenizer=tokenizer_mor,
+            embedding_size=args.embed_dim,
+            pretrained_embedding=args.use_pt_text_embeddings,
+            dropout=args.dropout,
+            layers=args.layers,
+            heads=args.num_heads,
+            hidden_size=args.hidden_size,
+            device=device
+        )
+        all_encoders['MOR'] = mortality_encoder
 
-model = MultiModalityPerceiver(
-    modalities=perceiver_mod,
-    depth=1,  # depth of net, combined with num_latent_blocks_per_layer to produce full Perceiver
-    num_latents=20,
-    # number of latents, or induced set points, or centroids. different papers giving it different names
-    latent_dim=args.perceiver_dim,  # latent dimension
-    cross_heads=1,  # number of heads for cross attention. paper said 1
-    latent_heads=6,  # number of heads for latent self attention, 8
-    cross_dim_head=64,
-    latent_dim_head=64,
-    num_classes=1,  # output number of classes
-    attn_dropout=0.,
-    ff_dropout=0.,
-    #embed=True,
-    weight_tie_layers=True,
-    num_latent_blocks_per_layer=1,
-    cross_depth=1# Note that this parameter is 1 in the original Lucidrain implementation
-    # whether to weight tie layers (optional, as indicated in the diagram)
-).to(device)
-model.to_logitslist = logits.to(device)
+    all_modalities = {}
+    all_modalities['Text_IHM'] = InputModality(
+        name='Text_IHM',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['TS_IHM'] = InputModality(
+        name='TS_IHM',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['CXR_IHM'] = InputModality(
+        name='CXR_IHM',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1.
+    )
+    all_modalities['ECG_IHM'] = InputModality(
+        name='ECG_IHM',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1.
+    )
+    all_modalities['Text_LOS'] = InputModality(
+        name='Text_LOS',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['TS_LOS'] = InputModality(
+        name='TS_LOS',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['CXR_LOS'] = InputModality(
+        name='CXR_LOS',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1.
+    )
+    all_modalities['ECG_LOS'] = InputModality(
+        name='ECG_LOS',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1.
+    )
+    all_modalities['Text_PHENO'] = InputModality(
+        name='Text_PHENO',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['TS_PHENO'] = InputModality(
+        name='TS_PHENO',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['CXR_PHENO'] = InputModality(
+        name='CXR_PHENO',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1.
+    )
+    all_modalities['ECG_PHENO'] = InputModality(
+        name='ECG_PHENO',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1.
+    )
+    all_modalities['T1_MOR'] = InputModality(
+        name='T1_MOR',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T2_MOR'] = InputModality(
+        name='T2_MOR',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T3_MOR'] = InputModality(
+        name='T3_MOR',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T4_MOR'] = InputModality(
+        name='T4_MOR',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T5_MOR'] = InputModality(
+        name='T5_MOR',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T1_RAD'] = InputModality(
+        name='T1_RAD',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T2_RAD'] = InputModality(
+        name='T2_RAD',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T3_RAD'] = InputModality(
+        name='T3_RAD',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T4_RAD'] = InputModality(
+        name='T4_RAD',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    all_modalities['T5_RAD'] = InputModality(
+        name='T5_RAD',
+        input_channels=args.embed_dim,
+        input_axis=1,
+        num_freq_bands=6,
+        max_freq=1
+    )
+    # TODO: each feature a modality? clustering feature?
+    # TODO: should we keep feature specific encoders?
+    perceiver_mod = []
+    for t in modalities_per_task:
+        for m in t:
+            perceiver_mod.append(all_modalities[m])
 
-setting = '{}-{}-seed{}-bs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
-    args.task,
-    modeltype,
-    args.seed,
-    args.train_batch_size,
-    args.num_train_epochs,
-    args.num_heads,
-    args.embed_dim,
-    args.perceiver_dim,
-    args.tt_max,
-    args.embed_time,
-    modalities_per_task
-)
-torch.save(model,'./checkpoints/mimic_iv.pt')
-encoder = ModalityEncoders(args, device, modalities, args.tt_max, args.num_of_notes, BioBert)
+    model = MultiModalityPerceiver(
+        modalities=perceiver_mod,
+        depth=1,  # depth of net, combined with num_latent_blocks_per_layer to produce full Perceiver
+        num_latents=20,
+        # number of latents, or induced set points, or centroids. different papers giving it different names
+        latent_dim=args.perceiver_dim,  # latent dimension
+        cross_heads=1,  # number of heads for cross attention. paper said 1
+        latent_heads=6,  # number of heads for latent self attention, 8
+        cross_dim_head=64,
+        latent_dim_head=64,
+        num_classes=1,  # output number of classes
+        attn_dropout=0.,
+        ff_dropout=0.,
+        #embed=True,
+        weight_tie_layers=True,
+        num_latent_blocks_per_layer=1,
+        cross_depth=1# Note that this parameter is 1 in the original Lucidrain implementation
+        # whether to weight tie layers (optional, as indicated in the diagram)
+    ).to(device)
+    model.to_logitslist = logits.to(device)
 
-records = train(
-    model,
-    all_train,
-    all_valid,
-    all_test,
-    modalities_per_task,
-    './checkpoints/mimic_iv.pt',
-    args,
-    encoder,
-    setting,
-    criterion=criterion,
-    lr=0.0008,
-    device=device,
-    train_weights=[1.0, 1.0, 1.0],
-    unsqueezing=[False, False, False],
-    transpose=[False, False, False],
-    weight_decay=0.001    
-)
-print('Experiment done!')
+    setting = '{}-{}-seed{}-Mbs{}-Ebs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
+        args.task,
+        modeltype,
+        args.seed,
+        args.train_bs_mimic,
+        args.train_bs_eicu,
+        args.num_train_epochs,
+        args.num_heads,
+        args.embed_dim,
+        args.perceiver_dim,
+        args.tt_max,
+        args.embed_time,
+        modalities_per_task
+    )
+    torch.save(model,'./checkpoints/mimic_iv.pt')
+
+    _ = train(
+        model,
+        all_train,
+        all_valid,
+        all_test,
+        modalities_per_task,
+        './checkpoints/mimic_iv.pt',
+        args,
+        all_encoders,
+        setting,
+        criterion=criterion,
+        lr=0.0008,
+        device=device,
+        train_weights=train_weights,
+        weight_decay=0.001    
+    )
+    print('Experiment done!')
+
+
+if __name__ == "__main__":
+    import pdb
+    main()

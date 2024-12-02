@@ -163,3 +163,5 @@ cython_debug/
 
 /src/checkpoints
 /src/result.txt
+/src/datasets/eicu/physionet.org
+/src/datasets/eicu/processed
