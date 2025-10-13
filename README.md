@@ -1,4 +1,4 @@
-# Clinical High-Modality Modal Transformer
+# Clinical Multimodal-Multitask Transformer
 
 ## Instructions to Run:
 Under your virtual environment, run
