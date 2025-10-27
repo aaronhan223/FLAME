@@ -1,10 +1,11 @@
 import torch
-from eval_scripts.performance import metrics_multilabel
+from src.eval_scripts.performance import metrics_multilabel
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score
 from tqdm import tqdm
 import numpy as np
 import pdb
-
+from peft import LoraConfig, get_peft_model, TaskType
+import os
 
 def train(
     model,
@@ -31,26 +32,55 @@ def train(
     getattentionmap=False
     ):
 
-    optim = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
-    bestacc=0.0
-    fulltrains=[]
-    print('\nData preprocessing...')
-    for i in tqdm(range(len(trains))): # for each task
-        count=0 # count is batch number  
-        for j in tqdm(trains[i]): # for each batch of that task
-            # first round establish all the dictionaries for task 1, one per batch
-            # second round utilize existing dictionaries for the next task
-            # so fulltrains contain a list of dicts where the elements are divided by batch, each dict contains task and corresponding modalities of that batch
-            if count >= len(fulltrains):
-                fulltrains.append({})
-            fulltrains[count][str(i)] = j # a list of dicts, where keys are tasks, values are corresponding modality component of these tasks
-            if i == flips:
-                j[-1] = (j[-1] + 1) % classesnum[i]
-            count += 1
+    if args.lora:
+        # 6. Set up the optimizer to fine-tune only LoRA parameters
+        optim = optimizer(
+            filter(lambda p: p.requires_grad, model.parameters()),
+            lr=lr,
+            weight_decay=weight_decay
+        )
+    else:
+        optim = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+    # --- LoRA Setup ---
+    # lora_config = LoraConfig(
+    #     task_type=TaskType.FEATURE_EXTRACTION,  # or SEQ_CLS, CAUSAL_LM, etc. depending on model type
+    #     r=8,           # rank of LoRA matrices
+    #     lora_alpha=32, # scaling factor
+    #     lora_dropout=0.1,
+    #     target_modules=["q_proj", "v_proj", "k_proj", "out_proj", "fc1", "fc2"],  # modify to match your model
+    # )
+
+    # # wrap your model
+    # model = get_peft_model(model, lora_config)
+    # print("Trainable parameters with LoRA:")
+    # model.print_trainable_parameters()
+
+    
+
+    if args.num_train_epochs > 0:
+        bestacc=0.0
+        fulltrains=[]
+        print('\nData preprocessing...')
+        for i in tqdm(range(len(trains))): # for each task
+            count=0 # count is batch number  
+            for j in tqdm(trains[i]): # for each batch of that task
+                # first round establish all the dictionaries for task 1, one per batch
+                # second round utilize existing dictionaries for the next task
+                # so fulltrains contain a list of dicts where the elements are divided by batch, each dict contains task and corresponding modalities of that batch
+                if count >= len(fulltrains):
+                    fulltrains.append({})
+                fulltrains[count][str(i)] = j # a list of dicts, where keys are tasks, values are corresponding modality component of these tasks
+                if i == flips:
+                    j[-1] = (j[-1] + 1) % classesnum[i]
+                count += 1
+    # import pdb; pdb.set_trace()
     # fulltrains.reverse()
     # fulltrains=fulltrains[start_from:]
     task_names = {'MOR': 'mortality', 'RAD': 'readmission'}
     for ep in range(args.num_train_epochs):
+        model.train()
+        for enc in encoder.values():
+            enc.train()
         print(f'\nTraining epoch {ep}/{args.num_train_epochs}...')
         for js in tqdm(fulltrains): # for each sample
             optim.zero_grad()
@@ -88,20 +118,24 @@ def train(
                         ethnicities=ethnicities,
                         modalities=modalities[int(ii)]
                     )
-                model.to_logits = model.to_logitslist[int(ii)]
+                if args.lora:
+                    model.base_model.model.model.to_logits = model.base_model.model.model.to_logitslist[int(ii)]
+                else:
+                    model.to_logits = model.to_logitslist[int(ii)]
                 indict={}
                 for i in range(len(modalities[int(ii)])):
                     indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
 
                 if recon:
-                    out, rec = model(indict, use_recon=True)
+                    out, rec = model(indict=indict, use_recon=True) if args.lora else model(indict, use_recon=True)
                     stuffs = []
                     for modal in indict:
                         stuffs.append(torch.mean(indict[modal], dim=1))
                     origs = torch.cat(stuffs, dim=1)
                     loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs)
                 else:
-                    out = model(indict)
+                    # import pdb; pdb.set_trace()
+                    out = model(indict=indict) if args.lora else model(indict)
                     if 'TS_PHENO' in modalities[int(ii)]:
                         loss=criterion[int(ii)](out, label.float().to(device))
                     else:
@@ -112,6 +146,9 @@ def train(
             optim.step()
 
         with torch.no_grad():
+            model.eval()
+            for enc in encoder.values():
+                enc.eval()
             accs=0.0
             eval_vals={}
             print("\nValidation...")
@@ -148,11 +185,14 @@ def train(
                             ethnicities=ethnicities,
                             modalities=modalities[int(ii)]
                         )
-                    model.to_logits = model.to_logitslist[ii]
+                    if args.lora:
+                        model.base_model.model.model.to_logits = model.base_model.model.model.to_logitslist[ii]
+                    else:
+                        model.to_logits = model.to_logitslist[ii]
                     indict={}
                     for i in range(len(modalities[ii])):
                         indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
-                    out = model(indict)
+                    out = model(indict=indict) if args.lora else model(indict)
                     if 'TS_PHENO' in modalities[int(ii)]:
                         logit = torch.nn.functional.sigmoid(out)
                     else:
@@ -175,22 +215,55 @@ def train(
             if accs > bestacc:
                 bestacc = accs
                 torch.save(model, savedir)
-    
+                for ii in range(len(modalities)):
+                    task = modalities[int(ii)][0].split('_')[1]
+                    torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+    print('Model saved to ', savedir)
+    # import pdb; pdb.set_trace()
     ### Testing function ###
     model=torch.load(savedir).to(device)
+    model.eval()
+    for enc_k, enc in encoder.items():
+        encoder[enc_k]=torch.load(f'{savedir.split(".pt")[0]}_{enc_k}_encoder.pt').to(device)
+        encoder[enc_k].eval()
     testaccs=[]
     with torch.no_grad():
         rets=[[],[],[],[]]
         print("\nTest...")
-        f = open("result.txt", 'a')
-        f.write("\n################## New Experiment ##################\n")
+        task_mods_dict = {
+            'ihm_mod': args.ihm_mod,
+            'los_mod': args.los_mod,
+            'pheno_mod': args.pheno_mod,
+            'rad_mod': args.rad_mod,
+            'mor_mod': args.mor_mod
+        }
+        task_mod_key = f'{args.task}_mod'
+        if args.lora:
+            out_fname = f"{args.results_dir}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.txt"
+            os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+            f = open(out_fname, 'a')
+        elif args.fine_tune:
+            out_fname = f"{args.results_dir}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.txt"
+            os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+            f = open(out_fname, 'a')
+        else:
+            out_fname = f"{args.results_dir}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+            os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+            f = open(out_fname, 'a')
+        f.write(f"\n################## New Experiment ##################\n")
         f.write(setting + "  \n")
+        print(f"\nWriting results to {out_fname}\n")
+        # import pdb; pdb.set_trace()
         for ii in tqdm(range(len(test))):
             eval_vals={}
             eval_logits = []
             eval_labels = []
             task = modalities[int(ii)][0].split('_')[1]
-            model.to_logits=model.to_logitslist[ii]
+            
+            if args.lora:
+                model.base_model.model.model.to_logits = model.base_model.model.model.to_logitslist[ii]
+            else:
+                model.to_logits=model.to_logitslist[ii]
             for jj in tqdm(test[ii]):
                 if task in ['IHM', 'PHENO', 'LOS']:
                     ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
@@ -223,7 +296,7 @@ def train(
                 indict={}
                 for i in range(0, len(modalities[ii])): # for each modality within that task
                     indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
-                out = model(indict)
+                out = model(indict=indict) if args.lora else model(indict)
                 if 'TS_PHENO' in modalities[int(ii)]:
                     logit = torch.nn.functional.sigmoid(out)
                 else:

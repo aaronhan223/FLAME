@@ -165,3 +165,7 @@ cython_debug/
 /src/result.txt
 /src/datasets/eicu/physionet.org
 /src/datasets/eicu/processed
+/src/analysis/results_merged/*
+*.png
+/src/result*.txt
+/src/results/*

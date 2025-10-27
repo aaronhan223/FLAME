@@ -3,16 +3,6 @@ import os
 import argparse
 sys.path.insert(1,os.getcwd())
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from crossattnperceiver import MultiModalityPerceiver, InputModality
-from train_structure_multitask_mimic import train
-from encoders import ModalityEncoders, FSEncoder
-from utils import create_directory, dump_pickle
-from preprocess.preprocess_eicu import *
-import torch
-from accelerate import Accelerator
-torch.multiprocessing.set_sharing_strategy('file_system')
-from datasets.mimic.get_data_mimic_iv import data_prepare as prepare_mimic
-from get_data_eicu import data_prepare as prepare_eicu
 from transformers import (AutoTokenizer,
                           AutoModel,
                           AutoConfig,
@@ -26,6 +16,20 @@ from transformers import (AutoTokenizer,
                           LongformerModel,
                           LongformerTokenizer,
                          )
+from src.crossattnperceiver import MultiModalityPerceiver, InputModality, PerceiverWrapper
+from src.train_structure_multitask_mimic import train
+from src.encoders import ModalityEncoders, FSEncoder
+from src.utils import create_directory, dump_pickle
+from src.preprocess.preprocess_eicu import *
+import torch
+from accelerate import Accelerator
+torch.multiprocessing.set_sharing_strategy('file_system')
+from src.datasets.mimic.get_data_mimic_iv import data_prepare as prepare_mimic
+from src.get_data_eicu import data_prepare as prepare_eicu
+from peft import get_peft_model, LoraConfig, TaskType
+from transformers import set_seed
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Alignment text and ts data")
@@ -153,6 +157,10 @@ def parse_args():
     parser.add_argument("--datagereate_seed", type=int, default=42, help="A seed for reproducible data generation .")
     parser.add_argument("--TS_model", type=str, default='Atten', help="LSTM, CNN, Atten")
     parser.add_argument("--use_pt_text_embeddings", action='store_true', help="Option to use pre-extracted text embeddings")
+    parser.add_argument('--lora', action='store_true', help='Use LoRA for fine-tuning')
+    parser.add_argument('--base_task_mods', type=str, default='', help='Modalities used in the base task for transfer learning')
+    parser.add_argument('--base_task', type=str, default='', help='Base task for transfer learning')
+    parser.add_argument('--results_dir', type=str, default='/cis/home/schaud35/clinical-highmmt/src/results', help='Directory to store results') 
     args = parser.parse_args()
     return args
 
@@ -185,8 +193,30 @@ def loadBert(args,device):
     BioBertConfig = BioBert.config
     return BioBert, BioBertConfig, tokenizer
 
+# Function to replace Sequential modules in target_modules with their submodules
+def update_target_modules_for_sequential(model, target_modules):
+    updated_target_modules = set()
+
+    for module_name in target_modules:
+        # Check if the module is part of a Sequential block
+        if isinstance(dict(model.named_modules()).get(module_name.split('.')[0]), torch.nn.Sequential):
+            sequential_module = dict(model.named_modules()).get(module_name.split('.')[0])
+
+            # Iterate through the submodules inside the Sequential block
+            for sub_name, sub_module in sequential_module.named_children():
+                # Add the submodule layer to the updated_target_modules if it's a valid LoRA layer
+                if isinstance(sub_module, torch.nn.Linear) or isinstance(sub_module, torch.nn.Conv1d):
+                    full_name = f"{module_name.split('.')[0]}.{sub_name}.weight"
+                    updated_target_modules.add(full_name)
+        else:
+            # If the module is not sequential, just keep it in the updated_target_modules
+            updated_target_modules.add(module_name)
+
+    return updated_target_modules
+
 def main():
     args = parse_args()
+    set_seed(args.seed)
     if args.fp16:
         args.mixed_precision = "fp16"
     else:
@@ -223,6 +253,7 @@ def main():
         BioBert, BioBertConfig, tokenizer = loadBert(args, device)
     else:
         tokenizer = None
+        BioBert = None
 
     tasks = args.task.split("-")
     all_train = []
@@ -268,6 +299,7 @@ def main():
         modalities_per_task.append(los_mods)
         logit_dim = len(los_mods) * (len(los_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        
         los_encoder = ModalityEncoders(
             args, 
             device, 
@@ -503,6 +535,7 @@ def main():
     )
     # TODO: each feature a modality? clustering feature?
     # TODO: should we keep feature specific encoders?
+    # import pdb; pdb.set_trace()
     perceiver_mod = []
     for t in modalities_per_task:
         for m in t:
@@ -528,7 +561,115 @@ def main():
         # whether to weight tie layers (optional, as indicated in the diagram)
     ).to(device)
     model.to_logitslist = logits.to(device)
+    task_mods_dict = {
+        'ihm_mod': args.ihm_mod,
+        'los_mod': args.los_mod,
+        'pheno_mod': args.pheno_mod,
+        'rad_mod': args.rad_mod,
+        'mor_mod': args.mor_mod
+    }
+    task_mod_key = f'{args.task}_mod'
+    if args.fine_tune or args.lora:
+        # Load the saved model checkpoint
+        checkpoint = torch.load(f'./checkpoints/mimic_iv_{args.base_task}_{args.base_task_mods}.pt', map_location=device)
+        enc_checkpoint = torch.load(f'./checkpoints/mimic_iv_{args.base_task}_{args.base_task_mods}_{args.base_task.upper()}_encoder.pt', map_location=device)
+        
+        # This will be the state_dict (either entire checkpoint or nested in a dict)
+        pretrained_state_dict = checkpoint.state_dict()
+        pretrained_enc_state_dict = enc_checkpoint.state_dict()
 
+        # Get the current model's state_dict
+        model_state_dict = model.state_dict()
+
+        # Filter the pretrained weights to only those that match in shape and name
+        compatible_weights = {}
+        for k, v in pretrained_state_dict.items():
+            if k in model_state_dict and model_state_dict[k].shape == v.shape:
+                compatible_weights[k] = v
+
+        # Report mismatches if desired
+        mismatched_keys = [k for k in pretrained_state_dict if k not in compatible_weights]
+        if mismatched_keys:
+            print("Skipping incompatible or missing keys:")
+            for k in mismatched_keys:
+                ckpt_shape = pretrained_state_dict[k].shape
+                model_value = model_state_dict.get(k, None)
+                model_shape = model_value.shape if model_value is not None else 'missing'
+                print(f" - {k} (checkpoint shape: {ckpt_shape}, model shape: {model_shape})")
+
+        # Load compatible weights
+        model_state_dict.update(compatible_weights)
+        model.load_state_dict(model_state_dict)
+
+        print("Successfully loaded compatible model weights.")
+        
+        for ii in range(len(modalities_per_task)):
+            task = modalities_per_task[int(ii)][0].split('_')[1]
+            enc_state_dict = all_encoders[task.upper()].state_dict()
+            compatible_enc_weights = {}
+
+
+            for k, v in pretrained_enc_state_dict.items():
+                if k in enc_state_dict and enc_state_dict[k].shape == v.shape:
+                    compatible_enc_weights[k] = v
+            
+            mismatched_enc_keys = [k for k in pretrained_enc_state_dict if k not in compatible_enc_weights]
+            if mismatched_enc_keys:
+                print(f"Skipping incompatible or missing encoder keys for {t}:")
+                for k in mismatched_enc_keys:
+                    ckpt_shape = pretrained_enc_state_dict[k].shape
+                    model_value = enc_state_dict.get(k, None)
+                    model_shape = model_value.shape if model_value is not None else 'missing'
+                    print(f" - {k} (checkpoint shape: {ckpt_shape}, model shape: {model_shape})")
+            
+            enc_state_dict.update(compatible_enc_weights)
+            all_encoders[task.upper()].load_state_dict(enc_state_dict)
+            # Freeze only the parameters that were matched and loaded
+            for name, param in all_encoders[task.upper()].named_parameters():
+                if name in compatible_enc_weights: 
+                    param.requires_grad = False
+        print("Successfully loaded compatible encoder weights.")
+
+    if args.lora:
+        # Wrap model to make it PEFT-compatible
+        wrapped_model = PerceiverWrapper(model)
+
+        # 1. Get loaded layers' names
+        loaded_layer_names = set(k.rsplit('.', 1)[0] for k in compatible_weights)
+
+        # 2. Define which types of submodules you want to LoRA (e.g., projection layers)
+        possible_lora_targets = [
+            "to_q",   # For attention query weights
+            "to_kv",  # For attention key/value weights
+            "to_out", # For output projection
+            "net"     # For intermediate feedforward weights
+        ]
+
+        # 3. Find which of those submodules appear in the loaded layers
+        target_modules = set()
+        for name in loaded_layer_names:
+            for sub in possible_lora_targets:
+                if sub in name:
+                    target_modules.add(name)
+        print("Target LoRA modules:", target_modules)
+        target_modules = update_target_modules_for_sequential(model, target_modules)
+        print("Target LoRA modules:", target_modules)
+        
+        # 4. Define LoRA config only for those submodules
+        lora_config = LoraConfig(
+            task_type=TaskType.FEATURE_EXTRACTION,  # change based on your task
+            r=8,
+            lora_alpha=32,
+            lora_dropout=0.1,
+            target_modules=list(target_modules),
+        )
+
+        # 5. Apply LoRA
+
+        model = get_peft_model(wrapped_model, lora_config)
+
+    # print([(n,p.shape) for n,p in model.named_parameters()])
+    # exit()
     setting = '{}-{}-seed{}-Mbs{}-Ebs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
         args.task,
         modeltype,
@@ -543,7 +684,20 @@ def main():
         args.embed_time,
         modalities_per_task
     )
-    torch.save(model,'./checkpoints/mimic_iv.pt')
+    if args.lora:
+        savedir = f'./checkpoints/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    elif args.fine_tune:
+        savedir = f'./checkpoints/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    else:
+        savedir = f'./checkpoints/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    if args.num_train_epochs>0:
+        torch.save(model,savedir)
+        for ii in range(len(modalities_per_task)):
+            task = modalities_per_task[int(ii)][0].split('_')[1]
+            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
 
     _ = train(
         model,
@@ -551,7 +705,7 @@ def main():
         all_valid,
         all_test,
         modalities_per_task,
-        './checkpoints/mimic_iv.pt',
+        savedir,
         args,
         all_encoders,
         setting,

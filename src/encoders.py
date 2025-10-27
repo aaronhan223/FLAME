@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from layer import RelTemporalEncoding, TransformerBlock
+from src.layer import RelTemporalEncoding, TransformerBlock
 # from utils import count_parameters
 import pdb
 

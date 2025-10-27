@@ -3,7 +3,7 @@ import os
 import sys
 import math
 
-from utils import create_directory, dump_pickle, merge_events
+from src.utils import create_directory, dump_pickle, merge_events
 
 class eICUData:
 
@@ -532,10 +532,10 @@ def post_process(icu_stay_dict, min_len=3, max_len=256):
 
 
 def main():
-    data_path = "/cis/home/xhan56/code/clinical-highmmt/src/datasets/eicu"
+    data_path = "/cis/home/schaud35/clinical-highmmt/src/datasets/eicu"
     input_path = os.path.join(data_path, "physionet.org/files/eicu-crd/2.0")
     # output_path = os.path.join(data_path, "processed")
-    output_path = "/cis/home/xhan56/code/clinical-highmmt"
+    output_path = "/cis/home/schaud35/clinical-highmmt"
     create_directory(output_path)
 
     patient_file = input_path + "/patient.csv"

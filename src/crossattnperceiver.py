@@ -45,6 +45,35 @@ def findmodalityandindex(ms, mn):
         if mn == m.name:
             return m, i
 
+class PerceiverWrapper(nn.Module):
+    def __init__(self, perceiver_model):
+        super().__init__()
+        super().__setattr__('model', perceiver_model)
+
+    def forward(self, *args, input_ids=None, indict=None, **kwargs):
+        # Handle both positional and keyword cases
+        if len(args) == 1 and indict is None and input_ids is None:
+            indict = args[0]
+
+        if indict is not None:
+            return self.model(indict)
+        elif input_ids is not None:
+            return self.model({"x": input_ids})
+        else:
+            return self.model(kwargs)
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self.model, name)
+
+    def __setattr__(self, name, value):
+        if name in ['model', '_modules', '_parameters', '_buffers']:
+            super().__setattr__(name, value)
+        else:
+            setattr(self.model, name, value)
+
 
 # An implementation of Perceiver that can accept multiple data modalities in the same forward.
 class MultiModalityPerceiver(nn.Module):
@@ -151,6 +180,7 @@ class MultiModalityPerceiver(nn.Module):
         linearized_data = []
         linearized_data_per_layer: Dict[int, List[Tensor]] = {}
         latentout=[]
+        
         #self.attns={}
         if not get_pre_logits:
             for _, modality_name in enumerate(sorted(multi_modality_data.keys())):
@@ -241,6 +271,7 @@ class MultiModalityPerceiver(nn.Module):
             #return catted
 
         #print('catted shape: {}'.format(catted.shape))
+        
         if (self.recon is not None) and use_recon:
             return self.to_logits(catted),self.recon(catted)
         elif get_catted or get_pre_logits:
