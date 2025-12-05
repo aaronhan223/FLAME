@@ -6,6 +6,7 @@ import numpy as np
 import pdb
 from peft import LoraConfig, get_peft_model, TaskType
 import os
+from src.utils import *
 
 def train(
     model,
@@ -32,15 +33,19 @@ def train(
     getattentionmap=False
     ):
 
+    # Collect all parameters to optimize: model + all encoders
     if args.lora:
-        # 6. Set up the optimizer to fine-tune only LoRA parameters
-        optim = optimizer(
-            filter(lambda p: p.requires_grad, model.parameters()),
-            lr=lr,
-            weight_decay=weight_decay
-        )
+        # For LoRA: only trainable parameters from model + all encoder parameters
+        params_to_optimize = list(filter(lambda p: p.requires_grad, model.parameters()))
+        for enc in encoder.values():
+            params_to_optimize += list(enc.parameters())
+        optim = optimizer(params_to_optimize, lr=lr, weight_decay=weight_decay)
     else:
-        optim = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
+        # For full fine-tuning: all model parameters + all encoder parameters
+        params_to_optimize = list(model.parameters())
+        for enc in encoder.values():
+            params_to_optimize += list(enc.parameters())
+        optim = optimizer(params_to_optimize, lr=lr, weight_decay=weight_decay)
     # --- LoRA Setup ---
     # lora_config = LoraConfig(
     #     task_type=TaskType.FEATURE_EXTRACTION,  # or SEQ_CLS, CAUSAL_LM, etc. depending on model type
@@ -78,6 +83,8 @@ def train(
     # fulltrains=fulltrains[start_from:]
     task_names = {'MOR': 'mortality', 'RAD': 'readmission'}
     for ep in range(args.num_train_epochs):
+        # if ep==0:
+            # snapshot_before = check_encoder_updates(encoder, "Before optim.step()")
         model.train()
         for enc in encoder.values():
             enc.train()
@@ -125,7 +132,7 @@ def train(
                 indict={}
                 for i in range(len(modalities[int(ii)])):
                     indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
-
+                
                 if recon:
                     out, rec = model(indict=indict, use_recon=True) if args.lora else model(indict, use_recon=True)
                     stuffs = []
@@ -141,9 +148,11 @@ def train(
                     else:
                         loss=criterion[int(ii)](out, label.to(device))
                 losses += loss * train_weights[int(ii)]
-
+            
             losses.backward()
             optim.step()
+            # snapshot_after = check_encoder_updates(encoder, "After optim.step()")
+            # compare_encoder_snapshots(snapshot_before, snapshot_after)
 
         with torch.no_grad():
             model.eval()
@@ -239,15 +248,15 @@ def train(
         }
         task_mod_key = f'{args.task}_mod'
         if args.lora:
-            out_fname = f"{args.results_dir}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.txt"
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         elif args.fine_tune:
-            out_fname = f"{args.results_dir}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.txt"
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         else:
-            out_fname = f"{args.results_dir}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         f.write(f"\n################## New Experiment ##################\n")

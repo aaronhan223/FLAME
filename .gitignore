@@ -169,3 +169,5 @@ cython_debug/
 *.png
 /src/result*.txt
 /src/results/*
+*.csv
+*.xml

@@ -100,3 +100,91 @@ def merge_events(events):
         else:
             out[-1][-1].append(_id)
     return out
+
+def check_encoder_updates(encoder, step_name=""):
+    """
+    Check if encoder parameters are being updated during training.
+    Call this function before and after optimizer.step() to compare.
+    
+    Args:
+        encoder: dict of encoder modules (one per task)
+        step_name: str to identify when this check is called
+    
+    Returns:
+        dict: snapshot of encoder parameters for comparison
+    """
+    encoder_snapshots = {}
+    
+    for task_name, enc in encoder.items():
+        params_snapshot = {}
+        has_grad = {}
+        
+        for name, param in enc.named_parameters():
+            # Store a copy of the parameter
+            params_snapshot[name] = param.data.clone().detach()
+            # Check if gradient exists
+            has_grad[name] = param.grad is not None
+            
+        encoder_snapshots[task_name] = {
+            'params': params_snapshot,
+            'has_grad': has_grad
+        }
+    
+    if step_name:
+        print(f"\n=== Encoder Check: {step_name} ===")
+        for task_name, snapshot in encoder_snapshots.items():
+            n_params = len(snapshot['params'])
+            n_with_grad = sum(snapshot['has_grad'].values())
+            print(f"Task '{task_name}': {n_params} params, {n_with_grad} with gradients")
+    
+    return encoder_snapshots
+
+def compare_encoder_snapshots(before, after, tolerance=1e-10):
+    """
+    Compare two encoder snapshots to check if parameters changed.
+    
+    Args:
+        before: snapshot from check_encoder_updates() before update
+        after: snapshot from check_encoder_updates() after update
+        tolerance: minimum difference to consider as change
+    
+    Returns:
+        dict: summary of changes per task
+    """
+    changes = {}
+    
+    for task_name in before.keys():
+        changed_params = []
+        unchanged_params = []
+        
+        for param_name, param_before in before[task_name]['params'].items():
+            param_after = after[task_name]['params'][param_name]
+            diff = torch.abs(param_after - param_before).max().item()
+            
+            if diff > tolerance:
+                changed_params.append((param_name, diff))
+            else:
+                unchanged_params.append(param_name)
+        
+        changes[task_name] = {
+            'changed': changed_params,
+            'unchanged': unchanged_params,
+            'n_changed': len(changed_params),
+            'n_unchanged': len(unchanged_params)
+        }
+    
+    print("\n=== Encoder Parameter Update Summary ===")
+    for task_name, change_info in changes.items():
+        total = change_info['n_changed'] + change_info['n_unchanged']
+        print(f"\nTask '{task_name}':")
+        print(f"  Changed: {change_info['n_changed']}/{total} parameters")
+        print(f"  Unchanged: {change_info['n_unchanged']}/{total} parameters")
+        
+        if change_info['changed']:
+            print(f"  Sample changes (first 3):")
+            for param_name, diff in change_info['changed'][:3]:
+                print(f"    {param_name}: max diff = {diff:.6e}")
+        else:
+            print(f"  ⚠️  WARNING: No parameters were updated!")
+    
+    return changes

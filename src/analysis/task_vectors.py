@@ -2,6 +2,7 @@ import sys
 import os
 # sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import torch
+import pandas as pd
 import src.crossattnperceiver as crossattnperceiver
 import sys
 sys.modules['crossattnperceiver'] = crossattnperceiver
@@ -13,6 +14,7 @@ import numpy as np
 from src.analysis.evaluation import evaluate_model
 import argparse
 from transformers import set_seed
+from src.analysis.utils import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Alignment text and ts data")
@@ -145,6 +147,8 @@ def parse_args():
     parser.add_argument('--base_task', type=str, default='', help='Base task for transfer learning')
     parser.add_argument('--new_task_mods', type=str, default='', help='Modalities used in the new task for transfer learning')
     parser.add_argument('--results_dir', type=str, default='/cis/home/schaud35/clinical-highmmt/src/analysis/', help='Directory to store results') 
+    parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
+    parser.add_argument('--log', type=bool, default=True)
     args = parser.parse_args()
     return args
 
@@ -159,31 +163,23 @@ def get_task_vectors(base_model, model_ft):
     
     return task_vector
 
-def layerwise_svd(task_vector, rank=None, lora_only=False):
-    svd_results = {}
-    for name, delta in (task_vector.items() if not lora_only else task_vector.state_dict().items()):
-        if lora_only and "lora_" not in name:
-            continue
-        if delta.ndim < 2:  # skip biases, layernorm weights etc.
-            continue
-        
-        # Flatten into matrix for SVD
-        delta_2d = delta.detach().cpu()
-        if delta_2d.ndim > 2:
-            print(name, delta_2d.shape)
-            delta_2d = delta_2d.view(delta_2d.size(0), -1)
-        
-        # Compute SVD
-        U, S, Vh = torch.linalg.svd(delta_2d, full_matrices=False)
-        if rank is not None:
-            U, S, Vh = U[:, :rank], S[:rank], Vh[:rank, :]
-        
-        svd_results[name] = (U, S, Vh)
-        print(f"{name}: shape={delta.shape}, top singular values={S[:5]}")
-    
-    return svd_results
+def print_layerwise_ranks(model, tol=1e-4, log=False):
+    ranks = layerwise_rank_analysis(model, tol=tol)
+    if log:
+        print("\n\nLayerwise ranks for model:")
+        for id, (name, info) in enumerate(ranks.items()):
+            print(f"[{id}] {name}: rank = {info['rank']} / {min(info['shape'])} ({info['rank_ratio']:.2f})")
+    return ranks
 
-def plot_layer_energy(svd_task, task_name="", base_task_name=""):
+def print_layerwise_concat_ranks(model1, model2, tol=1e-4, log=False): 
+    ranks = layerwise_concat_rank(model1, model2, tol=tol)
+    if log:
+        print("\n\nConcatenated layerwise ranks:")
+        for id, (name, info) in enumerate(ranks.items()):
+            print(f"[{id}] {name}: concat rank = {info['concat_rank']} ({info['concat_rank_ratio']:.2f})")
+    return ranks
+
+def plot_layer_energy(svd_task, task_name="", base_task_name="", args=None):
     layer_names = []
     layer_energy = []
 
@@ -203,12 +199,12 @@ def plot_layer_energy(svd_task, task_name="", base_task_name=""):
     plt.title("Total fine-tuning change per layer")
     plt.tight_layout()
     # plt.show()
-    save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{base_task_name}/{task_name}"
+    save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     plt.savefig(f"{save_dir}/layer_energy.png")
 
-def plot_singular_values_per_layer(svd_task, task_name="", base_task_name=""):
+def plot_singular_values_per_layer(svd_task, task_name="", base_task_name="", args=None):
     for name, (_, S, _) in svd_task.items():
         plt.figure(figsize=(12, 10))
         plt.plot(S.numpy(), marker='o')
@@ -219,12 +215,12 @@ def plot_singular_values_per_layer(svd_task, task_name="", base_task_name=""):
         plt.grid(True)
         plt.tight_layout()
         # plt.show()
-        save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{base_task_name}/{task_name}/{name}"
+        save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}/{name}"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         plt.savefig(f"{save_dir}/singular_values.png")
 
-def compare_singular_values(svd_results, task_names=[], base_task_name="", suffix=""):
+def compare_singular_values(svd_results, task_names=[], base_task_name="", suffix="", args=None):
     if not task_names:
         return  # nothing to compare
     # Get & of all keys of tasks in task_set
@@ -240,12 +236,12 @@ def compare_singular_values(svd_results, task_names=[], base_task_name="", suffi
         plt.grid(True)
         plt.tight_layout()
         # plt.show()
-        save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{base_task_name}/compare_singular_values{suffix}/{name}"
+        save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/compare_singular_values{suffix}/{name}"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         plt.savefig(f"{save_dir}/compare_singular_values.png")
 
-def plot_rank_energy_ratio_per_layer(svd_task, task_name="", base_task_name=""):
+def plot_rank_energy_ratio_per_layer(svd_task, task_name="", base_task_name="", args=None):
     layer_names = []
     rank_ratio = []
     for name, (_, S, _) in svd_task.items():
@@ -260,7 +256,7 @@ def plot_rank_energy_ratio_per_layer(svd_task, task_name="", base_task_name=""):
     plt.title("Effective rank of fine-tuning update per layer")
     plt.tight_layout()
     # plt.show()
-    save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{base_task_name}/{task_name}"
+    save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     plt.savefig(f"{save_dir}/rank_energy_ratio_per_layer.png")
@@ -272,27 +268,105 @@ if __name__ == "__main__":
     base_task_mod = args.base_task_mods
     new_task_mod = args.new_task_mods
 
-    ihm = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_{base_task}_{new_task_mod}.pt')
-    ihm_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_{base_task}_{new_task_mod}_{base_task.upper()}_encoder.pt')
-    los_ft = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}.pt')
-    los_ft_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}_LOS_encoder.pt')
-    los_lora = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}.pt')
-    los_lora_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}_LOS_encoder.pt')
-    los = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_los_{new_task_mod}.pt')
-    los_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_los_{new_task_mod}_LOS_encoder.pt')
-    pheno_ft = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}.pt')
-    pheno_ft_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}_PHENO_encoder.pt')
-    pheno_lora = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}.pt')
-    pheno_lora_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}_PHENO_encoder.pt')
-    pheno = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_pheno_{new_task_mod}.pt')
-    pheno_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_pheno_{new_task_mod}_PHENO_encoder.pt')
-    for it in [('ihm', ihm, ihm_enc, False, False), ('los', los_ft, los_ft_enc, True, False), ('los', los_lora, los_lora_enc, False, True), ('los', los, los_enc, False, False), ('pheno', pheno_ft, pheno_ft_enc, True, False), ('pheno', pheno_lora, pheno_lora_enc, False, True), ('pheno', pheno, pheno_enc, False, False)]:
-        print(f"Evaluating {it[0]} model...")
-        args.fine_tune = it[-2]
-        args.lora = it[-1]
-        args.task = it[0]
-        evaluate_model(args, model=it[1].cuda(), encoder=it[2].cuda(), device='cuda')
+    ihm = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_{base_task}_{new_task_mod}.pt')
+    ihm_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_{base_task}_{new_task_mod}_{base_task.upper()}_encoder.pt')
+    los_ft = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}.pt')
+    los_ft_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}_LOS_encoder.pt')
+    los_lora = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}.pt')
+    los_lora_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}_LOS_encoder.pt')
+    los = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_los_{new_task_mod}.pt')
+    los_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_los_{new_task_mod}_LOS_encoder.pt')
+    pheno_ft = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}.pt')
+    pheno_ft_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}_PHENO_encoder.pt')
+    pheno_lora = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}.pt')
+    pheno_lora_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}_PHENO_encoder.pt')
+    pheno = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}.pt')
+    pheno_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}_PHENO_encoder.pt')
+    # for it in [('ihm', ihm, ihm_enc, False, False), ('los', los_ft, los_ft_enc, True, False), ('los', los_lora, los_lora_enc, False, True), ('los', los, los_enc, False, False), ('pheno', pheno_ft, pheno_ft_enc, True, False), ('pheno', pheno_lora, pheno_lora_enc, False, True), ('pheno', pheno, pheno_enc, False, False)]:
+    # for it in [('pheno', los, los_enc, False, False)]:
+        # print(f"Evaluating {it[0]} model...")
+        # args.fine_tune = it[-2]
+        # args.lora = it[-1]
+        # args.task = it[0]
+        # evaluate_model(args, model=it[1].cuda(), encoder=it[2].cuda(), device='cuda')
     # import pdb; pdb.set_trace()
+    
+    # Create composite: IHM early layers + LOS late layers
+    # composite_forward, cleanup = create_composite_model(
+    #     ihm, los,
+    #     cutoff_layer_source=['modality_layers.TS_IHM.0.2', 'modality_layers.Text_IHM.0.2', 'modality_layers.CXR_IHM.0.2'],  # Extract from IHM here
+    #     start_layer_target=['cross_layers.0.0']  # Inject into LOS here
+    # )
+    # evaluate_model(args, model=ihm.cuda(), encoder=ihm_enc.cuda(), device='cuda', custom_forward=composite_forward)
+    rank_cutoff = 0.001
+    svd_los = layerwise_svd(los)
+    los_ranks = print_layerwise_ranks(los, tol=rank_cutoff)
+    # los_enc_ranks = print_layerwise_ranks(los_enc, tol=rank_cutoff)
+    los_k = {}
+    for n, (u,s,v) in svd_los.items():
+        if n in los_ranks:
+            los_k[n] = torch.matmul(u[:, :los_ranks[n]['rank']], torch.matmul(torch.diag(s[:los_ranks[n]['rank']]), v[:los_ranks[n]['rank'], :]))
+        else:
+            los_k[n] = torch.matmul(u, torch.matmul(torch.diag(s), v))
+    copy_weights(los_k, los)
+    args.fine_tune=False
+    args.lora=False
+    args.task='los'
+    evaluate_model(args, model=los.cuda(), encoder=los_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_los')
+    
+    svd_ihm = layerwise_svd(ihm)
+    ihm_ranks = print_layerwise_ranks(ihm, tol=rank_cutoff)
+    df = pd.DataFrame({    "layer": list(ihm_ranks.keys(
+    )),    "rank": [v["rank"] for v in ihm_ranks.values()]})
+    ihm_k = {}
+    for n, (u,s,v) in svd_ihm.items():
+        if n in ihm_ranks:
+            ihm_k[n] = torch.matmul(u[:, :ihm_ranks[n]['rank']], torch.matmul(torch.diag(s[:ihm_ranks[n]['rank']]), v[:ihm_ranks[n]['rank'], :]))
+        else:
+            ihm_k[n] = torch.matmul(u, torch.matmul(torch.diag(s), v))
+    copy_weights(ihm_k, ihm)
+    args.fine_tune=False
+    args.lora=False
+    args.task='ihm'
+    evaluate_model(args, model=ihm.cuda(), encoder=ihm_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_ihm')
+    
+    # svd_los_ft = layerwise_svd(los_ft)
+    # los_ft_ranks = print_layerwise_ranks(los_ft, tol=rank_cutoff)
+    # los_ft_k = {}
+    # for n, (u,s,v) in svd_los_ft.items():
+    #     if n in los_ft_ranks:
+    #         los_ft_k[n] = torch.matmul(u[:, :los_ft_ranks[n]['rank']], torch.matmul(torch.diag(s[:los_ft_ranks[n]['rank']]), v[:los_ft_ranks[n]['rank'], :]))
+    #     else:
+    #         los_ft_k[n] = torch.matmul(u, torch.matmul(torch.diag(s), v))
+    # copy_weights(los_ft_k, los_ft)
+    # args.fine_tune=True
+    # args.lora=False
+    # args.task='los'
+    # evaluate_model(args, model=los_ft.cuda(), encoder=los_ft_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_los_ft')
+    
+    los_to_ihm, ihm_to_los, U_ihm_los, S_ihm_los, Vh_ihm_los = layerwise_concat_svd(ihm, los, tol=rank_cutoff)
+    copy_weights(ihm_to_los, los)
+    copy_weights(los_to_ihm, ihm)
+    args.fine_tune=False
+    args.lora=False
+    args.task='los'
+    evaluate_model(args, model=los.cuda(), encoder=los_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_eigen_ihm_to_los')
+    args.task='ihm'
+    evaluate_model(args, model=ihm.cuda(), encoder=ihm_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_eigen_los_to_ihm')
+    import pdb; pdb.set_trace()
+
+
+    start_copy_layer = 10
+    end_copy_layer = 20
+    copy_weights(ihm, los, start_copy_layer, end_copy_layer)
+    args.fine_tune=False
+    args.lora=False
+    args.task='los'
+    evaluate_model(args, model=los.cuda(), encoder=los_enc.cuda(), device='cuda', inter_dir=f'composite_{start_copy_layer}_{end_copy_layer}_ihm_in_los')
+    
+    ihm_ranks = print_layerwise_ranks(ihm)
+    concat_ranks = print_layerwise_concat_ranks(ihm, los)
+    import pdb; pdb.set_trace()
     task_vectors = {
         # "ihm_TS-Text-CXR": get_task_vectors(ihm, ihm),
         f"los_ft_{new_task_mod}/{base_task}_{base_task_mod}": get_task_vectors(ihm, los_ft),
@@ -310,11 +384,11 @@ if __name__ == "__main__":
             svd_results[source_task] = layerwise_svd(tv, rank=None, lora_only=True)
         else:
             svd_results[source_task] = layerwise_svd(tv, rank=None)
-        plot_layer_energy(svd_results[source_task], task_name=source_task, base_task_name=target_task)
-        plot_singular_values_per_layer(svd_results[source_task], task_name=source_task, base_task_name=target_task)
-        plot_rank_energy_ratio_per_layer(svd_results[source_task], task_name=source_task, base_task_name=target_task)
+        plot_layer_energy(svd_results[source_task], task_name=source_task, base_task_name=target_task, args=args)
+        plot_singular_values_per_layer(svd_results[source_task], task_name=source_task, base_task_name=target_task, args=args)
+        plot_rank_energy_ratio_per_layer(svd_results[source_task], task_name=source_task, base_task_name=target_task, args=args)
 
-    compare_singular_values(svd_results, task_names=[f"los_ft_{new_task_mod}", f"los_{new_task_mod}", f"pheno_ft_{new_task_mod}", f"pheno_{new_task_mod}"], base_task_name=f"{base_task}_{base_task_mod}", suffix=f'_{new_task_mod}')
-    compare_singular_values(svd_results, task_names=[f"los_lora_{new_task_mod}", f"pheno_lora_{new_task_mod}"], base_task_name=f"{base_task}_{base_task_mod}", suffix=f"_{new_task_mod}_lora")
+    compare_singular_values(svd_results, task_names=[f"los_ft_{new_task_mod}", f"los_{new_task_mod}", f"pheno_ft_{new_task_mod}", f"pheno_{new_task_mod}"], base_task_name=f"{base_task}_{base_task_mod}", suffix=f'_{new_task_mod}', args=args)
+    compare_singular_values(svd_results, task_names=[f"los_lora_{new_task_mod}", f"pheno_lora_{new_task_mod}"], base_task_name=f"{base_task}_{base_task_mod}", suffix=f"_{new_task_mod}_lora", args=args)
     
     import pdb; pdb.set_trace()

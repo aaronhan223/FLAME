@@ -44,6 +44,9 @@ def findmodalityandindex(ms, mn):
     for i, m in enumerate(ms):
         if mn == m.name:
             return m, i
+        elif mn.split('_')[0]==m.name.split('_')[0]:
+            return m, i
+    raise ValueError(f"modality {mn} not found in defined modalities")
 
 class PerceiverWrapper(nn.Module):
     def __init__(self, perceiver_model):
@@ -233,6 +236,213 @@ class MultiModalityPerceiver(nn.Module):
                     x = torch.nan_to_num(x, nan=0.0)
                     x = cross_ff(x) + x
                     x = latent_transformer(x) + x
+                #x = self.pool(x)
+                latentout.append(x)
+
+            if get_latent:
+                return latentout[0]
+    
+        #print(latentout[0].shape, latentout[0].flatten(start_dim=1).shape)
+        outs=[]
+        #cross attention layer
+        if get_pre_logits:
+            latentout = latents
+            x=latentout[0]
+            context=latentout[1]
+            for cross_attn, cross_ff, latent_transformer in self.cross_layers:
+                x = cross_attn(x, context=context, mask=mask) + x
+                x = cross_ff(x) + x
+                x = latent_transformer(x) + x
+            return x[:, -1]
+
+        for i in range(len(latentout)):
+            for j in range(len(latentout)):
+                if i==j:
+                    continue
+                x=latentout[i]
+                context=latentout[j]
+                for cross_attn, cross_ff, latent_transformer in self.cross_layers:
+                    x = cross_attn(x, context=context, mask=mask) + x
+                    x = cross_ff(x) + x
+                    x = latent_transformer(x) + x
+                outs.append(x[:,-1])
+        if len(outs)==0:
+            catted = latentout[0].flatten(start_dim=1)
+        else:
+            catted=torch.cat(outs,dim=1)
+        #if get_latent:
+            #return catted
+
+        #print('catted shape: {}'.format(catted.shape))
+        
+        if (self.recon is not None) and use_recon:
+            return self.to_logits(catted),self.recon(catted)
+        elif get_catted or get_pre_logits:
+            return catted
+        elif null_pvi:
+            return self.to_logits(torch.zeros(catted.shape).to(device))
+        return self.to_logits(catted)
+    
+# An implementation of Cross-Attention Transformer that can accept multiple data modalities in the same forward.
+class CrossAttnTransformer(nn.Module):
+    def __init__(
+            self,
+            *,
+            modalities: Iterable[InputModality],
+            depth,
+            num_latents=512,
+            latent_dim=512,
+            cross_heads=1,
+            latent_heads=8,
+            cross_dim_head=64,
+            latent_dim_head=64,
+            num_classes=None,
+            attn_dropout=0.,
+            ff_dropout=0.,
+            embed=False,
+            embed_size=10,
+            weight_tie_layers=False,
+            num_latent_blocks_per_layer=1,
+            use_gelu: bool = False,
+            cross_depth=2,
+            cross_cross_heads=4,
+            recon=None
+    ):
+        """
+        :param modalities:
+        :param depth: Number of times the perceiver will perform cross-attention between latent and input.
+        :param num_latents:
+        :param latent_dim:
+        :param cross_heads:
+        :param latent_heads:
+        :param cross_dim_head:
+        :param latent_dim_head:
+        :param num_classes: Number of classes to predict, or if None, return the hidden state (num latents x hidden_dim)
+        :param attn_dropout:
+        :param ff_dropout:
+        :param weight_tie_layers: True: share weights across layers, False no shared weights.
+        :param num_latent_blocks_per_layer: Number of blocks in the latent transformer.
+        :param use_gelu: Use GELU activation like the Perceiver preprint indicates. False,
+               with Lucidrains' GEGLU activation in feed forward instead.
+        """
+        super().__init__()
+        self.modalities = modalities
+        self.embed_size = embed_size
+        # we encode modality with one hot encoding, so need one dim per modality:
+        modality_encoding_dim = sum([1 for _ in modalities])
+        nummodalities = modality_encoding_dim
+        if embed:
+            modality_encoding_dim=embed_size
+        self.modality_encoding_dim=modality_encoding_dim
+        # input_dim is the maximum dimension over all input modalities:
+        # this is to unify the input dimension, the short one is zero padded
+        input_dim = max(modality.input_dim for modality in modalities) + modality_encoding_dim
+        self.max_modality_dim = input_dim
+        self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
+        ff_type = FeedForwardGELU if use_gelu else FeedForward
+        self.embed=None
+        if embed:
+            self.embed = torch.nn.Parameter(torch.randn(nummodalities,embed_size))
+        get_cross_attn = lambda: PreNorm(latent_dim,
+                                         Attention(latent_dim, input_dim, heads=cross_heads, dim_head=cross_dim_head,
+                                                   dropout=attn_dropout), context_dim=input_dim)
+        get_cross_cross_attn = lambda: PreNorm(latent_dim,
+                                         Attention(latent_dim, latent_dim, heads=cross_cross_heads, dim_head=cross_dim_head,
+                                                   dropout=attn_dropout), context_dim=latent_dim)
+        get_cross_ff = lambda: PreNorm(latent_dim, ff_type(latent_dim, dropout=ff_dropout))
+        get_latent_attn = lambda: PreNorm(latent_dim,
+                                          Attention(latent_dim, heads=latent_heads, dim_head=latent_dim_head,
+                                                    dropout=attn_dropout))
+        get_latent_ff = lambda: PreNorm(latent_dim, ff_type(latent_dim, dropout=ff_dropout))
+
+        get_cross_attn, get_cross_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_by_name_fn, (
+            get_cross_attn,get_cross_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
+
+        # Create separate layers for each modality
+        self.modality_layers = nn.ModuleDict()
+        for modality in modalities:
+            modality_layers = nn.ModuleList([])
+            build_perceiver_layers(modality_layers, depth, get_cross_attn, get_cross_ff,
+                                   get_latent_attn, get_latent_ff,
+                                   weight_tie_layers,
+                                   num_latent_blocks_per_layer=num_latent_blocks_per_layer)
+            self.modality_layers[modality.name] = modality_layers
+        self.to_logits = nn.Sequential(
+            nn.LayerNorm(latent_dim*2),
+            nn.Linear(latent_dim*2, num_classes)
+        )
+
+        self.cross_layers = nn.ModuleList([])
+        build_perceiver_layers(self.cross_layers, cross_depth, get_cross_cross_attn, get_cross_ff,
+                               get_latent_attn, get_latent_ff,
+                               weight_tie_layers,
+                               num_latent_blocks_per_layer=num_latent_blocks_per_layer)
+        self.recon=recon
+
+    def forward(self, multi_modality_data: Dict[str, Tensor], mask=None, use_recon=False, get_latent=False, get_pre_logits=False, latents=None, source_mode=None, get_catted=False, unimodal=False, null_pvi=False):
+        """
+        :param data: a dictionary where keys are modality names and Tensor contain a batch
+        of modality input data.
+        :param mask:
+        :return:
+        """
+        batch_sizes = set()
+        num_modalities = len(self.modalities)
+        linearized_data = []
+        linearized_data_per_layer: Dict[int, List[Tensor]] = {}
+        latentout=[]
+        
+        #self.attns={}
+        if not get_pre_logits:
+            for _, modality_name in enumerate(sorted(multi_modality_data.keys())):
+                #assert modality_name in self.modalities, f"modality {modality_name} was not defined in constructor"
+                data = multi_modality_data[modality_name]
+                modality, modality_index = findmodalityandindex(self.modalities, modality_name)
+                if source_mode != None:
+                    _, source_index = findmodalityandindex(self.modalities, source_mode)
+
+                b, *axis, _, device = *data.shape, data.device
+                # b, *axis, device = *data.shape, data.device
+                # TODO: check this for MIMIC-IV, whether the _ part can be removed
+                assert len(axis) == modality.input_axis, f'input data must have the right number of  for modality {modality_name}. ' \
+                                              f'Expected {modality.input_axis} while forward argument offered {len(axis)}'
+                batch_sizes.add(b)
+                assert len(batch_sizes) == 1, "batch size must be the same across all modalities"
+                # calculate fourier encoded positions in the range of [-1, 1], for all axis
+
+                axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device), axis))
+                pos = torch.stack(torch.meshgrid(*axis_pos), dim=-1)
+                enc_pos = fourier_encode(pos, modality.max_freq, modality.num_freq_bands, modality.freq_base)
+                enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
+                enc_pos = repeat(enc_pos, '... -> b ...', b=b)
+
+                # Figure out padding for this modality, given max dimension across all modalities:
+                padding_size = self.max_modality_dim - modality.input_dim - self.modality_encoding_dim
+
+                padding = torch.zeros(size=data.size()[0:-1] + (padding_size,)).to(device)
+                # concat to channels of data and flatten axis
+                modality_encodings = modality_encoding(b, axis, modality_index, num_modalities, embed=self.embed, device=device)
+
+                if source_mode != None:
+                    modality_encodings = modality_encoding(b, axis, source_index, num_modalities, embed=self.embed, device=device)
+
+                to_concat = (data, padding, enc_pos, modality_encodings)
+
+                data = torch.cat(to_concat, dim=-1)
+                data = rearrange(data, 'b ... d -> b (...) d')
+                #linearized_data.append(data)
+                b = batch_sizes.pop()
+                x = repeat(self.latents, 'n d -> b n d', b=b)
+                
+                # Use modality-specific layers
+                modality_layers = self.modality_layers[modality_name]
+                for cross_attn, cross_ff, latent_transformer in modality_layers:
+                    x = cross_attn(x, context=data, mask=mask) + x
+                    #self.attns[modality_name]=cross_attn.fn.printattn
+                    x = torch.nan_to_num(x, nan=0.0)
+                    x = cross_ff(x) + x
+                    x = latent_transformer(x) + x
+                
                 #x = self.pool(x)
                 latentout.append(x)
 

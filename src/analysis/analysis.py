@@ -17,16 +17,18 @@ from transformers import (AutoTokenizer,
                           LongformerModel,
                           LongformerTokenizer,
                          )
-from crossattnperceiver import MultiModalityPerceiver, InputModality
-from train_structure_multitask_mimic import train
-from encoders import ModalityEncoders, FSEncoder
-from utils import create_directory, dump_pickle
-from preprocess.preprocess_eicu import *
+from src.crossattnperceiver import MultiModalityPerceiver, InputModality
+from src.train_structure_multitask_mimic import train
+from src.encoders import ModalityEncoders, FSEncoder
+from src.utils import create_directory, dump_pickle
+from src.preprocess.preprocess_eicu import *
 import torch
 from accelerate import Accelerator
 torch.multiprocessing.set_sharing_strategy('file_system')
-from datasets.mimic.get_data_mimic_iv import data_prepare as prepare_mimic
-from get_data_eicu import data_prepare as prepare_eicu
+from src.datasets.mimic.get_data_mimic_iv import data_prepare as prepare_mimic
+from src.get_data_eicu import data_prepare as prepare_eicu
+from src.analysis.utils import register_forward_hook
+import numpy as np
 
 def create_model(args, device, logits):
     model = MultiModalityPerceiver(
@@ -86,16 +88,33 @@ def layerwise_rank_analysis(model, tol=1e-5):
     return rank_info
 
 import torch
+import re
+    
+# Task substrings to remove when comparing layer names
+task_patterns = ['_IHM', '_LOS', '_PHENO', '_RAD', '_MOR']
+
+def normalize_layer_name(name):
+    """Remove task-specific substrings from layer name for comparison."""
+    normalized = name
+    for pattern in task_patterns:
+        normalized = normalized.replace(pattern, '')
+    return normalized
+
 
 def layerwise_concat_rank(model1, model2, tol=1e-5):
     """
     Computes numerical rank for concatenated parameters layer-by-layer
     between two models with the same architecture.
     """
+    
     rank_info = {}
     
     for (name1, p1), (name2, p2) in zip(model1.named_parameters(), model2.named_parameters()):
-        assert name1 == name2, f"Layer mismatch: {name1} vs {name2}"
+        # Normalize names by removing task substrings
+        norm_name1 = normalize_layer_name(name1)
+        norm_name2 = normalize_layer_name(name2)
+        
+        assert norm_name1 == norm_name2, f"Layer mismatch: {name1} (normalized: {norm_name1}) vs {name2} (normalized: {norm_name2})"
         
         if p1.dim() >= 2:
             W1 = p1.detach().cpu()
@@ -130,6 +149,8 @@ parser.add_argument("--los_mod", type=str, default='TS-Text-CXR', help="Modality
 parser.add_argument("--pheno_mod", type=str, default='', help="Modality compoenents for PHENO task.")
 parser.add_argument("--rad_mod", type=str, default='', help="Modality compoenents for readmission task.")
 parser.add_argument("--mor_mod", type=str, default='', help="Modality compoenents for mortality task.")
+parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
+
 args = parser.parse_args()
 
 all_modalities = {}
@@ -305,8 +326,8 @@ for t in modalities_per_task:
         perceiver_mod.append(all_modalities[m])
 
 # model1 = create_model(args, 'cuda', logits=torch.nn.Linear(args.perceiver_dim, 1))
-model1 = torch.load('/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_ihm_TS-Text-CXR.pt')
-
+# model1 = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_ihm_TS-Text-CXR.pt')
+model1 = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_ihm_TS-Text-CXR.pt')
 modalities_per_task = []
 logits = torch.nn.ModuleList()
 los_mods = list(map(lambda s: s + '_LOS', args.los_mod.split("-")))
@@ -321,7 +342,7 @@ for t in modalities_per_task:
         perceiver_mod.append(all_modalities[m])
 
 # model2 = create_model(args, 'cuda', logits=torch.nn.Linear(args.perceiver_dim, 1))
-model2 = torch.load('/cis/home/schaud35/clinical-highmmt/src/checkpoints/mimic_iv_los_TS-Text-CXR.pt')
+model2 = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_los_TS-Text-CXR.pt')
 
 # Option 2: Check if the model architectures are identical
 same_architecture = str(model1) == str(model2)
@@ -329,20 +350,20 @@ print("Same architecture:", same_architecture)
 
 # Option 3: Compare layer names and parameters
 def same_model_structure(m1, m2):
-    return all(a == b for a, b in zip(m1.state_dict().keys(), m2.state_dict().keys()))
+    return all(normalize_layer_name(a) == normalize_layer_name(b) for a, b in zip(m1.state_dict().keys(), m2.state_dict().keys()))
 
 print("Same structure:", same_model_structure(model1, model2))
 
 ranks = layerwise_rank_analysis(model1, tol=1e-4)
-
+print("\n\nLayerwise ranks for model 1:")
 for name, info in ranks.items():
     print(f"{name}: rank = {info['rank']} / {min(info['shape'])} ({info['rank_ratio']:.2f})")
 
 ranks = layerwise_rank_analysis(model2, tol=1e-4)
-
+print("\n\nLayerwise ranks for model 2:")
 for name, info in ranks.items():
     print(f"{name}: rank = {info['rank']} / {min(info['shape'])} ({info['rank_ratio']:.2f})")
-
+print("\n\nConcatenated layerwise ranks:")
 ranks = layerwise_concat_rank(model1, model2, tol=1e-4)
 for name, info in ranks.items():
     print(f"{name}: concat rank = {info['concat_rank']} ({info['concat_rank_ratio']:.2f})")

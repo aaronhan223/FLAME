@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=6
 
 # python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
 #                 --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 \
@@ -39,10 +39,10 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_dim 128 \
                 --perceiver_dim 64 \
                 --model_name "bioLongformer"\
-                --task 'los'\
-                --ihm_mod 'TS-Text-CXR'\
-                --los_mod 'TS-Text-CXR'\
-                --pheno_mod 'TS-Text-CXR'\
+                --task 'pheno'\
+                --ihm_mod 'TS-CXR'\
+                --los_mod 'TS-CXR'\
+                --pheno_mod 'TS-CXR'\
                 --rad_mod 'T1-T2-T3-T4-T5'\
                 --mor_mod 'T1-T2-T3-T4-T5'\
                 --mimic_path '/export/io79/data/schaud35/'\
@@ -58,6 +58,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --irregular_learn_emb_ecg \
                 --use_pt_text_embeddings \
                 --reg_ts \
-                --fine_tune \
-                --base_task_mods 'TS-Text' \
-                --base_task 'ihm'
+                --fusion_model 'crossattntransformer'\
+                # --fine_tune \
+                # --base_task_mods 'TS-Text' \
+                # --base_task 'ihm'

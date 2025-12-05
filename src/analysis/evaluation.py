@@ -33,7 +33,7 @@ import pdb
 from peft import LoraConfig, get_peft_model, TaskType
 
 
-def evaluate_model(args, model, encoder, device, getattentionmap=False):
+def evaluate_model(args, model, encoder, device, getattentionmap=False, custom_forward=None, inter_dir=None):
     modalities = set()
     if len(args.ihm_mod) != 0 and 'ihm' in args.task:
         for e in args.ihm_mod.split("-"):
@@ -144,21 +144,31 @@ def evaluate_model(args, model, encoder, device, getattentionmap=False):
             'mor_mod': args.mor_mod
         }
         task_mod_key = f'{args.task}_mod'
-        if args.lora:
-            out_fname = f"{args.results_dir}/results_merged/{args.base_task}/{args.base_task_mods}/result_{args.task}_{args.new_task_mods}_lora_from_ihm.txt"
-            os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-            f = open(out_fname, 'a')
-        elif args.fine_tune:
-            out_fname = f"{args.results_dir}/results_merged/{args.base_task}/{args.base_task_mods}/result_{args.task}_{args.new_task_mods}_ft_from_ihm.txt"
-            os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-            f = open(out_fname, 'a')
+        if custom_forward:
+            log_dir = args.results_dir + '/results_merged/'+ '/composite_models'
+        elif inter_dir:
+            log_dir = args.results_dir + '/results_merged/'+ f'/{inter_dir}'
         else:
-            out_fname = f"{args.results_dir}/results_merged/{args.base_task}/{args.base_task_mods}/result_{args.task}_{args.new_task_mods}.txt"
-            os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-            f = open(out_fname, 'a')
-        f.write(f"\n################## New Experiment ##################\n")
-        f.write(setting + "  \n")
-        print(f"\nWriting results to {out_fname}\n")
+            log_dir = args.results_dir + '/results_merged'
+        if args.lora:
+            out_fname = f"{log_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{args.new_task_mods}_lora_from_{args.base_task}_{task_mods_dict[task_mod_key]}.txt"
+            if args.log:
+                os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+                f = open(out_fname, 'a')
+        elif args.fine_tune:
+            out_fname = f"{log_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{args.new_task_mods}_ft_from_{args.base_task}_{task_mods_dict[task_mod_key]}.txt"
+            if args.log:
+                os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+                f = open(out_fname, 'a')
+        else:
+            out_fname = f"{log_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{args.new_task_mods}_{task_mods_dict[task_mod_key]}.txt"
+            if args.log:
+                os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+                f = open(out_fname, 'a')
+        if args.log:
+            f.write(f"\n################## New Experiment ##################\n")
+            f.write(setting + "  \n")
+            print(f"\nWriting results to {out_fname}\n")
         for ii in tqdm(range(len(test))):
             eval_vals={}
             eval_logits = []
@@ -201,7 +211,12 @@ def evaluate_model(args, model, encoder, device, getattentionmap=False):
                 indict={}
                 for i in range(0, len(modalities_per_task[int(ii)])): # for each modality within that task
                     indict[modalities_per_task[int(ii)][i]] = embeddings[modalities_per_task[int(ii)][i]].float().to(device)
-                out = model(indict=indict) if args.lora else model(indict)
+                
+                # Use custom forward if provided, otherwise use model's default forward
+                if custom_forward is not None:
+                    out = custom_forward(indict)
+                else:
+                    out = model(indict=indict) if args.lora else model(indict)
                 if 'TS_PHENO' in modalities_per_task[int(ii)]:
                     logit = torch.nn.functional.sigmoid(out)
                 else:
@@ -226,13 +241,14 @@ def evaluate_model(args, model, encoder, device, getattentionmap=False):
                 eval_vals['auprc'] = eval_val
                 eval_val = f1_score(np.array(eval_labels), all_pred)
                 eval_vals['f1'] = eval_val
-            
-            f.write(f"------Task {ii}------\n")
-            for k, v in eval_vals.items():
-                f.write(k+': {}'.format(v))
-                f.write('\n')
-                f.write('\n')
-        f.close()
+            if args.log:
+                f.write(f"------Task {ii}------\n")
+                for k, v in eval_vals.items():
+                    f.write(k+': {}'.format(v))
+                    f.write('\n')
+                    f.write('\n')
+        if args.log:
+            f.close()
     
     if getattentionmap:
         return rets

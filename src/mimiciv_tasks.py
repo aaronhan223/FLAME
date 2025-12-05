@@ -16,7 +16,7 @@ from transformers import (AutoTokenizer,
                           LongformerModel,
                           LongformerTokenizer,
                          )
-from src.crossattnperceiver import MultiModalityPerceiver, InputModality, PerceiverWrapper
+from src.crossattnperceiver import MultiModalityPerceiver, InputModality, PerceiverWrapper, CrossAttnTransformer
 from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder
 from src.utils import create_directory, dump_pickle
@@ -161,6 +161,7 @@ def parse_args():
     parser.add_argument('--base_task_mods', type=str, default='', help='Modalities used in the base task for transfer learning')
     parser.add_argument('--base_task', type=str, default='', help='Base task for transfer learning')
     parser.add_argument('--results_dir', type=str, default='/cis/home/schaud35/clinical-highmmt/src/results', help='Directory to store results') 
+    parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
     args = parser.parse_args()
     return args
 
@@ -540,26 +541,48 @@ def main():
     for t in modalities_per_task:
         for m in t:
             perceiver_mod.append(all_modalities[m])
-
-    model = MultiModalityPerceiver(
-        modalities=perceiver_mod,
-        depth=1,  # depth of net, combined with num_latent_blocks_per_layer to produce full Perceiver
-        num_latents=20,
-        # number of latents, or induced set points, or centroids. different papers giving it different names
-        latent_dim=args.perceiver_dim,  # latent dimension
-        cross_heads=1,  # number of heads for cross attention. paper said 1
-        latent_heads=6,  # number of heads for latent self attention, 8
-        cross_dim_head=64,
-        latent_dim_head=64,
-        num_classes=1,  # output number of classes
-        attn_dropout=0.,
-        ff_dropout=0.,
-        #embed=True,
-        weight_tie_layers=True,
-        num_latent_blocks_per_layer=1,
-        cross_depth=1# Note that this parameter is 1 in the original Lucidrain implementation
-        # whether to weight tie layers (optional, as indicated in the diagram)
-    ).to(device)
+    if args.fusion_model=="multimodalityperceiver":
+        model = MultiModalityPerceiver(
+            modalities=perceiver_mod,
+            depth=1,  # depth of net, combined with num_latent_blocks_per_layer to produce full Perceiver
+            num_latents=20,
+            # number of latents, or induced set points, or centroids. different papers giving it different names
+            latent_dim=args.perceiver_dim,  # latent dimension
+            cross_heads=1,  # number of heads for cross attention. paper said 1
+            latent_heads=6,  # number of heads for latent self attention, 8
+            cross_dim_head=64,
+            latent_dim_head=64,
+            num_classes=1,  # output number of classes
+            attn_dropout=0.,
+            ff_dropout=0.,
+            #embed=True,
+            weight_tie_layers=True,
+            num_latent_blocks_per_layer=1,
+            cross_depth=1# Note that this parameter is 1 in the original Lucidrain implementation
+            # whether to weight tie layers (optional, as indicated in the diagram)
+        ).to(device)
+    elif args.fusion_model in ["crossattntransformer", "crossattntransformer_wo_residual"]:
+        model = CrossAttnTransformer(
+            modalities=perceiver_mod,
+            depth=1,  # depth of net, combined with num_latent_blocks_per_layer to produce full Perceiver
+            num_latents=20,
+            # number of latents, or induced set points, or centroids. different papers giving it different names
+            latent_dim=args.perceiver_dim,  # latent dimension
+            cross_heads=1,  # number of heads for cross attention. paper said 1
+            latent_heads=6,  # number of heads for latent self attention, 8
+            cross_dim_head=64,
+            latent_dim_head=64,
+            num_classes=1,  # output number of classes
+            attn_dropout=0.,
+            ff_dropout=0.,
+            #embed=True,
+            weight_tie_layers=True,
+            num_latent_blocks_per_layer=1,
+            cross_depth=1# Note that this parameter is 1 in the original Lucidrain implementation
+            # whether to weight tie layers (optional, as indicated in the diagram)
+        ).to(device)
+    else:
+        raise ValueError("fusion_model should be multimodalityperceiver or crossattntransformer")
     model.to_logitslist = logits.to(device)
     task_mods_dict = {
         'ihm_mod': args.ihm_mod,
@@ -571,8 +594,8 @@ def main():
     task_mod_key = f'{args.task}_mod'
     if args.fine_tune or args.lora:
         # Load the saved model checkpoint
-        checkpoint = torch.load(f'./checkpoints/mimic_iv_{args.base_task}_{args.base_task_mods}.pt', map_location=device)
-        enc_checkpoint = torch.load(f'./checkpoints/mimic_iv_{args.base_task}_{args.base_task_mods}_{args.base_task.upper()}_encoder.pt', map_location=device)
+        checkpoint = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}.pt', map_location=device)
+        enc_checkpoint = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}_{args.base_task.upper()}_encoder.pt', map_location=device)
         
         # This will be the state_dict (either entire checkpoint or nested in a dict)
         pretrained_state_dict = checkpoint.state_dict()
@@ -685,13 +708,13 @@ def main():
         modalities_per_task
     )
     if args.lora:
-        savedir = f'./checkpoints/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fine_tune:
-        savedir = f'./checkpoints/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
-        savedir = f'./checkpoints/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
         torch.save(model,savedir)
