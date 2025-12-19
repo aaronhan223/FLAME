@@ -230,10 +230,10 @@ def train(
     print('Model saved to ', savedir)
     # import pdb; pdb.set_trace()
     ### Testing function ###
-    model=torch.load(savedir).to(device)
+    # model=torch.load(savedir).to(device)
     model.eval()
     for enc_k, enc in encoder.items():
-        encoder[enc_k]=torch.load(f'{savedir.split(".pt")[0]}_{enc_k}_encoder.pt').to(device)
+        # encoder[enc_k]=torch.load(f'{savedir.split(".pt")[0]}_{enc_k}_encoder.pt').to(device)
         encoder[enc_k].eval()
     testaccs=[]
     with torch.no_grad():
@@ -243,16 +243,21 @@ def train(
             'ihm_mod': args.ihm_mod,
             'los_mod': args.los_mod,
             'pheno_mod': args.pheno_mod,
-            'rad_mod': args.rad_mod,
-            'mor_mod': args.mor_mod
+            'ihm-los-pheno_mod': args.ihm_mod,
+            'readmission_mod': args.rad_mod,
+            'mortality_mod': args.mor_mod
         }
         task_mod_key = f'{args.task}_mod'
         if args.lora:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.txt"
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         elif args.fine_tune:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.txt"
+            os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+            f = open(out_fname, 'a')
+        elif args.linear_probe:
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.txt"
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         else:
@@ -305,6 +310,7 @@ def train(
                 indict={}
                 for i in range(0, len(modalities[ii])): # for each modality within that task
                     indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                
                 out = model(indict=indict) if args.lora else model(indict)
                 if 'TS_PHENO' in modalities[int(ii)]:
                     logit = torch.nn.functional.sigmoid(out)

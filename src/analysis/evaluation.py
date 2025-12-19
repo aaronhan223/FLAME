@@ -140,8 +140,9 @@ def evaluate_model(args, model, encoder, device, getattentionmap=False, custom_f
             'ihm_mod': args.ihm_mod,
             'los_mod': args.los_mod,
             'pheno_mod': args.pheno_mod,
-            'rad_mod': args.rad_mod,
-            'mor_mod': args.mor_mod
+            'ihm-los-pheno_mod': args.ihm_mod,
+            'readmission_mod': args.rad_mod,
+            'mortality_mod': args.mor_mod
         }
         task_mod_key = f'{args.task}_mod'
         if custom_forward:

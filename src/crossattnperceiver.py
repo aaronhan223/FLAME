@@ -435,7 +435,8 @@ class CrossAttnTransformer(nn.Module):
                 x = repeat(self.latents, 'n d -> b n d', b=b)
                 
                 # Use modality-specific layers
-                modality_layers = self.modality_layers[modality_name]
+                modality_layers = self.modality_layers[modality_name.split('_')[0]+'_LOS']
+                # modality_layers = self.modality_layers[modality_name]
                 for cross_attn, cross_ff, latent_transformer in modality_layers:
                     x = cross_attn(x, context=data, mask=mask) + x
                     #self.attns[modality_name]=cross_attn.fn.printattn

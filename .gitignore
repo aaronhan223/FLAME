@@ -167,6 +167,8 @@ cython_debug/
 /src/datasets/eicu/processed
 /src/analysis/results_merged/*
 *.png
+*.jpeg
+*.jpg
 /src/result*.txt
 /src/results/*
 *.csv

@@ -162,6 +162,8 @@ def parse_args():
     parser.add_argument('--base_task', type=str, default='', help='Base task for transfer learning')
     parser.add_argument('--results_dir', type=str, default='/cis/home/schaud35/clinical-highmmt/src/results', help='Directory to store results') 
     parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
+    parser.add_argument('--linear_probe', action='store_true')
+    parser.add_argument('--shared_modality_encoders', action='store_true', help='Use shared modality encoders across tasks')
     args = parser.parse_args()
     return args
 
@@ -309,7 +311,10 @@ def main():
             args.num_of_notes, 
             BioBert
         )
-        all_encoders['LOS'] = los_encoder
+        if 'IHM' in all_encoders:
+            all_encoders['LOS'] = all_encoders['IHM']
+        else:
+            all_encoders['LOS'] = los_encoder
     
     if 'pheno' in tasks:
         train_pheno, valid_pheno, test_pheno = prepare_mimic(args=args, task='pheno', tokenizer=tokenizer, modeltype=modeltype)
@@ -331,7 +336,10 @@ def main():
             args.num_of_notes, 
             BioBert
         )
-        all_encoders['PHENO'] = pheno_encoder
+        if 'IHM' in all_encoders or 'LOS' in all_encoders:
+            all_encoders['PHENO'] = all_encoders['IHM']
+        else:
+            all_encoders['PHENO'] = pheno_encoder
     
     if 'readmission' in tasks:
         train_rad, valid_rad, test_rad, tokenizer_rad = prepare_eicu(args=args)
@@ -380,167 +388,240 @@ def main():
         all_encoders['MOR'] = mortality_encoder
 
     all_modalities = {}
-    all_modalities['Text_IHM'] = InputModality(
-        name='Text_IHM',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['TS_IHM'] = InputModality(
-        name='TS_IHM',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['CXR_IHM'] = InputModality(
-        name='CXR_IHM',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1.
-    )
-    all_modalities['ECG_IHM'] = InputModality(
-        name='ECG_IHM',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1.
-    )
-    all_modalities['Text_LOS'] = InputModality(
-        name='Text_LOS',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['TS_LOS'] = InputModality(
-        name='TS_LOS',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['CXR_LOS'] = InputModality(
-        name='CXR_LOS',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1.
-    )
-    all_modalities['ECG_LOS'] = InputModality(
-        name='ECG_LOS',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1.
-    )
-    all_modalities['Text_PHENO'] = InputModality(
-        name='Text_PHENO',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['TS_PHENO'] = InputModality(
-        name='TS_PHENO',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['CXR_PHENO'] = InputModality(
-        name='CXR_PHENO',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1.
-    )
-    all_modalities['ECG_PHENO'] = InputModality(
-        name='ECG_PHENO',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1.
-    )
-    all_modalities['T1_MOR'] = InputModality(
-        name='T1_MOR',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T2_MOR'] = InputModality(
-        name='T2_MOR',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T3_MOR'] = InputModality(
-        name='T3_MOR',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T4_MOR'] = InputModality(
-        name='T4_MOR',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T5_MOR'] = InputModality(
-        name='T5_MOR',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T1_RAD'] = InputModality(
-        name='T1_RAD',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T2_RAD'] = InputModality(
-        name='T2_RAD',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T3_RAD'] = InputModality(
-        name='T3_RAD',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T4_RAD'] = InputModality(
-        name='T4_RAD',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
-    all_modalities['T5_RAD'] = InputModality(
-        name='T5_RAD',
-        input_channels=args.embed_dim,
-        input_axis=1,
-        num_freq_bands=6,
-        max_freq=1
-    )
+    if args.shared_modality_encoders:
+        all_modalities['Text'] = InputModality(
+            name='Text',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['TS'] = InputModality(
+            name='TS',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )   
+        all_modalities['CXR'] = InputModality(
+            name='CXR',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['ECG'] = InputModality(
+            name='ECG',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T1'] = InputModality(
+            name='T1',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T2'] = InputModality(
+            name='T2',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T3'] = InputModality(
+            name='T3',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T4'] = InputModality(
+            name='T4',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T5'] = InputModality(
+            name='T5',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+    else:
+        all_modalities['Text_IHM'] = InputModality(
+            name='Text_IHM',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['TS_IHM'] = InputModality(
+            name='TS_IHM',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['CXR_IHM'] = InputModality(
+            name='CXR_IHM',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1.
+        )
+        all_modalities['ECG_IHM'] = InputModality(
+            name='ECG_IHM',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['Text_LOS'] = InputModality(
+            name='Text_LOS',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['TS_LOS'] = InputModality(
+            name='TS_LOS',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['CXR_LOS'] = InputModality(
+            name='CXR_LOS',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1.
+        )
+        all_modalities['ECG_LOS'] = InputModality(
+            name='ECG_LOS',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1.
+        )
+        all_modalities['Text_PHENO'] = InputModality(
+            name='Text_PHENO',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['TS_PHENO'] = InputModality(
+            name='TS_PHENO',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['CXR_PHENO'] = InputModality(
+            name='CXR_PHENO',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1.
+        )
+        all_modalities['ECG_PHENO'] = InputModality(
+            name='ECG_PHENO',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1.
+        )
+        all_modalities['T1_MOR'] = InputModality(
+            name='T1_MOR',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T2_MOR'] = InputModality(
+            name='T2_MOR',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T3_MOR'] = InputModality(
+            name='T3_MOR',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T4_MOR'] = InputModality(
+            name='T4_MOR',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T5_MOR'] = InputModality(
+            name='T5_MOR',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T1_RAD'] = InputModality(
+            name='T1_RAD',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T2_RAD'] = InputModality(
+            name='T2_RAD',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T3_RAD'] = InputModality(
+            name='T3_RAD',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T4_RAD'] = InputModality(
+            name='T4_RAD',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['T5_RAD'] = InputModality(
+            name='T5_RAD',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
     # TODO: each feature a modality? clustering feature?
     # TODO: should we keep feature specific encoders?
     # import pdb; pdb.set_trace()
     perceiver_mod = []
-    for t in modalities_per_task:
-        for m in t:
+    if not args.shared_modality_encoders:
+        for t in modalities_per_task:
+            for m in t:
+                perceiver_mod.append(all_modalities[m])
+    else:
+        # Common modalities across all tasks
+        perceiver_mod = []
+        for m in ['TS', 'Text', 'CXR']:
             perceiver_mod.append(all_modalities[m])
+    # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
+    
     if args.fusion_model=="multimodalityperceiver":
         model = MultiModalityPerceiver(
             modalities=perceiver_mod,
@@ -588,14 +669,17 @@ def main():
         'ihm_mod': args.ihm_mod,
         'los_mod': args.los_mod,
         'pheno_mod': args.pheno_mod,
-        'rad_mod': args.rad_mod,
-        'mor_mod': args.mor_mod
+        'ihm-los-pheno_mod': args.ihm_mod,
+        'readmission_mod': args.rad_mod,
+        'mortality_mod': args.mor_mod
     }
     task_mod_key = f'{args.task}_mod'
     if args.fine_tune or args.lora:
         # Load the saved model checkpoint
         checkpoint = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}.pt', map_location=device)
-        enc_checkpoint = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}_{args.base_task.upper()}_encoder.pt', map_location=device)
+        for ii in range(len(modalities_per_task)):
+            task = modalities_per_task[int(ii)][0].split('_')[1]
+            enc_checkpoint = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}_{task}_encoder.pt', map_location=device)
         
         # This will be the state_dict (either entire checkpoint or nested in a dict)
         pretrained_state_dict = checkpoint.state_dict()
@@ -630,8 +714,7 @@ def main():
             task = modalities_per_task[int(ii)][0].split('_')[1]
             enc_state_dict = all_encoders[task.upper()].state_dict()
             compatible_enc_weights = {}
-
-
+            
             for k, v in pretrained_enc_state_dict.items():
                 if k in enc_state_dict and enc_state_dict[k].shape == v.shape:
                     compatible_enc_weights[k] = v
@@ -652,6 +735,20 @@ def main():
                 if name in compatible_enc_weights: 
                     param.requires_grad = False
         print("Successfully loaded compatible encoder weights.")
+    
+    if args.linear_probe:
+        model = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}.pt', map_location=device)
+        model.to_logitslist = logits.to(device)
+        for ii in range(len(modalities_per_task)):
+            task = modalities_per_task[int(ii)][0].split('_')[1]
+            if args.base_task==task.lower():
+                all_encoders[task] = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}_{task}_encoder.pt', map_location=device)
+        for name, param in model.named_parameters():
+            if 'to_logits' not in name:
+                param.requires_grad = False
+        for task in all_encoders:
+            for name, param in all_encoders[task].named_parameters():
+                param.requires_grad = False
 
     if args.lora:
         # Wrap model to make it PEFT-compatible
@@ -690,7 +787,7 @@ def main():
         # 5. Apply LoRA
 
         model = get_peft_model(wrapped_model, lora_config)
-
+    
     # print([(n,p.shape) for n,p in model.named_parameters()])
     # exit()
     setting = '{}-{}-seed{}-Mbs{}-Ebs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
@@ -708,10 +805,13 @@ def main():
         modalities_per_task
     )
     if args.lora:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_ihm.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fine_tune:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_ihm.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    elif args.linear_probe:
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
         savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
@@ -721,7 +821,6 @@ def main():
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
             torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
-
     _ = train(
         model,
         all_train,

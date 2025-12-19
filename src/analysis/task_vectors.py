@@ -15,6 +15,9 @@ from src.analysis.evaluation import evaluate_model
 import argparse
 from transformers import set_seed
 from src.analysis.utils import *
+import src.get_data_eicu as get_data_eicu
+sys.modules['get_data_eicu'] = get_data_eicu
+# from src.get_data_eicu import data_prepare as eicu_data_prepare
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Alignment text and ts data")
@@ -282,6 +285,12 @@ if __name__ == "__main__":
     pheno_lora_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}_PHENO_encoder.pt')
     pheno = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}.pt')
     pheno_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}_PHENO_encoder.pt')
+    mortality = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_mortality_T1-T2-T3-T4-T5.pt')
+    mortality_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_mortality_T1-T2-T3-T4-T5_MOR_encoder.pt')
+    readmission = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_readmission_T1-T2-T3-T4-T5.pt')
+    readmission_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_readmission_T1-T2-T3-T4-T5_RAD_encoder.pt')
+    ihm_los_pheno = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_ihm-los-pheno_{new_task_mod}.pt')
+    ihm_los_pheno_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_ihm-los-pheno_{new_task_mod}_IHM_encoder.pt')
     # for it in [('ihm', ihm, ihm_enc, False, False), ('los', los_ft, los_ft_enc, True, False), ('los', los_lora, los_lora_enc, False, True), ('los', los, los_enc, False, False), ('pheno', pheno_ft, pheno_ft_enc, True, False), ('pheno', pheno_lora, pheno_lora_enc, False, True), ('pheno', pheno, pheno_enc, False, False)]:
     # for it in [('pheno', los, los_enc, False, False)]:
         # print(f"Evaluating {it[0]} model...")
@@ -299,6 +308,57 @@ if __name__ == "__main__":
     # )
     # evaluate_model(args, model=ihm.cuda(), encoder=ihm_enc.cuda(), device='cuda', custom_forward=composite_forward)
     rank_cutoff = 0.001
+
+    svd_los = layerwise_svd(los)
+    los_ranks = print_layerwise_ranks(los, tol=rank_cutoff)
+    df_los = pd.DataFrame({    "layer": list(los_ranks.keys(
+    )),    "rank": [v["rank"] for v in los_ranks.values()]})
+    df_los.to_csv(f'los_ranks.csv')
+
+    # svd_ihm_enc = layerwise_svd(ihm_enc)
+    # ihm_enc_ranks = print_layerwise_ranks(ihm_enc, tol=rank_cutoff)
+    # df_ihm_enc = pd.DataFrame({    "layer": list(ihm_enc_ranks.keys(
+    # )),    "rank": [v["rank"] for v in ihm_enc_ranks.values()]})
+    # df_ihm_enc.to_csv(f'ihm_enc_ranks.csv')
+    
+    svd_los_enc = layerwise_svd(los_enc)
+    los_enc_ranks = print_layerwise_ranks(los_enc, tol=rank_cutoff)
+    df_los_enc = pd.DataFrame({    "layer": list(los_enc_ranks.keys(
+    )),    "rank": [v["rank"] for v in los_enc_ranks.values()]})
+    df_los_enc.to_csv(f'los_enc_ranks.csv')
+
+    # svd_pheno_enc = layerwise_svd(pheno_enc)
+    # pheno_enc_ranks = print_layerwise_ranks(pheno_enc, tol=rank_cutoff)
+    # df_pheno_enc = pd.DataFrame({    "layer": list(pheno_enc_ranks.keys(
+    # )),    "rank": [v["rank"] for v in pheno_enc_ranks.values()]})
+    # df_pheno_enc.to_csv(f'pheno_enc_ranks.csv')
+    import pdb; pdb.set_trace()
+    
+    svd_ihm_los_pheno = layerwise_svd(ihm_los_pheno)
+    ihm_los_pheno_ranks = print_layerwise_ranks(ihm_los_pheno, tol=rank_cutoff)
+    df_ihm_los_pheno = pd.DataFrame({    "layer": list(ihm_los_pheno_ranks.keys(
+    )),    "rank": [v["rank"] for v in ihm_los_pheno_ranks.values()]})
+    df_ihm_los_pheno.to_csv(f'ihm_los_pheno_ranks.csv')
+    
+    svd_ihm_los_pheno_enc = layerwise_svd(ihm_los_pheno_enc)
+    ihm_los_pheno_enc_ranks = print_layerwise_ranks(ihm_los_pheno_enc, tol=rank_cutoff)
+    df_ihm_los_pheno_enc = pd.DataFrame({    "layer": list(ihm_los_pheno_enc_ranks.keys(
+    )),    "rank": [v["rank"] for v in ihm_los_pheno_enc_ranks.values()]})
+    df_ihm_los_pheno_enc.to_csv(f'ihm_los_pheno_enc_ranks.csv')
+    import pdb; pdb.set_trace()
+
+    svd_svd_mortality = layerwise_svd(mortality)
+    mortality_ranks = print_layerwise_ranks(mortality, tol=rank_cutoff)
+    df_mortality = pd.DataFrame({    "layer": list(mortality_ranks.keys(
+    )),    "rank": [v["rank"] for v in mortality_ranks.values()]})
+    df_mortality.to_csv(f'mortality_ranks.csv')
+
+    svd_svd_readmission = layerwise_svd(readmission)
+    readmission_ranks = print_layerwise_ranks(readmission, tol=rank_cutoff)
+    df_readmission = pd.DataFrame({    "layer": list(readmission_ranks.keys(
+    )),    "rank": [v["rank"] for v in readmission_ranks.values()]})
+    df_readmission.to_csv(f'readmission_ranks.csv')
+
     svd_los = layerwise_svd(los)
     los_ranks = print_layerwise_ranks(los, tol=rank_cutoff)
     # los_enc_ranks = print_layerwise_ranks(los_enc, tol=rank_cutoff)
@@ -316,7 +376,7 @@ if __name__ == "__main__":
     
     svd_ihm = layerwise_svd(ihm)
     ihm_ranks = print_layerwise_ranks(ihm, tol=rank_cutoff)
-    df = pd.DataFrame({    "layer": list(ihm_ranks.keys(
+    df_ihm = pd.DataFrame({    "layer": list(ihm_ranks.keys(
     )),    "rank": [v["rank"] for v in ihm_ranks.values()]})
     ihm_k = {}
     for n, (u,s,v) in svd_ihm.items():
@@ -329,6 +389,7 @@ if __name__ == "__main__":
     args.lora=False
     args.task='ihm'
     evaluate_model(args, model=ihm.cuda(), encoder=ihm_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_ihm')
+    
     
     # svd_los_ft = layerwise_svd(los_ft)
     # los_ft_ranks = print_layerwise_ranks(los_ft, tol=rank_cutoff)
