@@ -204,10 +204,10 @@ class ModalityEncoders(nn.Module):
                 ecg_time=None, ecg_time_mask=None, modalities=None):
         
         embeddings = {}
+        time_query = self.learn_time_embedding(self.time_query.unsqueeze(0)).to(self.device)
         if any("TS" in s for s in modalities):
             idx = [index for index, mod in enumerate(modalities) if "TS" in mod][0]
             time_key_ts = self.learn_time_embedding(ts_tt_list).to(self.device)
-            time_query = self.learn_time_embedding(self.time_query.unsqueeze(0)).to(self.device)
             x_ts_irg = torch.cat((x_ts, x_ts_mask), 2)
             x_ts_mask = torch.cat((x_ts_mask, x_ts_mask), 2)
             proj_x_ts_irg=self.time_attn_ts(time_query, time_key_ts, x_ts_irg, x_ts_mask)
@@ -231,6 +231,7 @@ class ModalityEncoders(nn.Module):
                 x_txt = text_emb
             else:
                 x_txt = self.bertrep(input_ids_sequences, attn_mask_sequences)
+               
             time_key = self.learn_time_embedding(note_time_list).to(self.device)
             proj_x_txt = self.time_attn_text(time_query, time_key, x_txt, note_time_mask_list)
             embeddings[modalities[idx]] = proj_x_txt

@@ -263,7 +263,7 @@ class TSNote_Irg(Dataset):
         ts=torch.tensor(ts,dtype=torch.float)
         ts_mask=torch.tensor(ts_mask,dtype=torch.long)
         ts_tt=torch.tensor([t/self.tt_max for t in ts_tt],dtype=torch.float)
-
+        
         if self.modeltype == 'CXR_TS':
             return {'idx': idx, 'ts': ts, 'ts_mask': ts_mask, 'ts_tt': ts_tt, 'reg_ts': reg_ts, "label": label, 'cxr_feats': cxr_feats, 'cxr_time': cxr_time_to_end, 'cxr_time_mask': cxr_time_mask}
         elif self.modeltype == 'TS':
@@ -280,7 +280,10 @@ class TSNote_Irg(Dataset):
             'note_time': text_time_to_end, 'text_time_mask': text_time_mask, 'text_missing': data_detail['text_missing'],
              'cxr_feats': cxr_feats, 'cxr_time': cxr_time_to_end, 'cxr_time_mask': cxr_time_mask, 'cxr_missing': data_detail['cxr_missing'],
              'ecg_feats': ecg_feats, 'ecg_time': ecg_time_to_end, 'ecg_time_mask': ecg_time_mask, 'ecg_missing': data_detail['ecg_missing']}    
-
+        elif self.modeltype == 'CXR_Text':
+            return {'idx': idx, "input_ids": text_token, "label": label, "attention_mask": atten_mask, "text_embeddings": text_emb, \
+            'note_time': text_time_to_end, 'text_time_mask': text_time_mask, 'text_missing': data_detail['text_missing'],
+            'cxr_feats': cxr_feats, 'cxr_time': cxr_time_to_end, 'cxr_time_mask': cxr_time_mask, 'cxr_missing': data_detail['cxr_missing']}
     def __len__(self):
         return len(self.data)
 
@@ -311,7 +314,8 @@ def load_data(file_path, mode, debug=False, text=False, task='ihm'):
 def TextTSIrgcollate_fn(batch):
 
     batch = list(filter(lambda x: x is not None, batch))
-    batch = list(filter(lambda x: len(x['ts']) <1000, batch))
+    if 'ts' in batch[0].keys():
+        batch = list(filter(lambda x: len(x['ts']) <1000, batch))
     if len(batch) == 0:
         return
 

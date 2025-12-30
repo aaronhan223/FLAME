@@ -243,7 +243,10 @@ def train(
             'ihm_mod': args.ihm_mod,
             'los_mod': args.los_mod,
             'pheno_mod': args.pheno_mod,
-            'ihm-los-pheno_mod': args.ihm_mod,
+            'ihm-los-pheno_mod': args.ihm_mod+'-'+args.los_mod+'-'+args.pheno_mod,
+            'ihm-los_mod': args.ihm_mod+'-'+args.los_mod,
+            'ihm-pheno_mod': args.ihm_mod+'-'+args.pheno_mod,
+            'los-pheno_mod': args.los_mod+'-'+args.pheno_mod,
             'readmission_mod': args.rad_mod,
             'mortality_mod': args.mor_mod
         }
@@ -261,7 +264,10 @@ def train(
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         else:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+            if args.shared_modality_encoders:
+                out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+            else:
+                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         f.write(f"\n################## New Experiment ##################\n")
