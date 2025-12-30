@@ -143,7 +143,7 @@ def train(
                 else:
                     # import pdb; pdb.set_trace()
                     out = model(indict=indict) if args.lora else model(indict)
-                    if 'TS_PHENO' in modalities[int(ii)]:
+                    if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                         loss=criterion[int(ii)](out, label.float().to(device))
                     else:
                         loss=criterion[int(ii)](out, label.to(device))
@@ -202,7 +202,7 @@ def train(
                     for i in range(len(modalities[ii])):
                         indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
                     out = model(indict=indict) if args.lora else model(indict)
-                    if 'TS_PHENO' in modalities[int(ii)]:
+                    if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                         logit = torch.nn.functional.sigmoid(out)
                     else:
                         logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
@@ -214,7 +214,7 @@ def train(
                 all_logits = np.array(eval_logits)
                 all_label = np.array(eval_labels)
                 # use auc score as picking best performing model metric
-                if 'TS_PHENO' in modalities[int(ii)]:
+                if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                     eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
                     accs += eval_vals['auc_scores'].mean()
                 else:
@@ -318,7 +318,7 @@ def train(
                     indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
                 
                 out = model(indict=indict) if args.lora else model(indict)
-                if 'TS_PHENO' in modalities[int(ii)]:
+                if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                     logit = torch.nn.functional.sigmoid(out)
                 else:
                     logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
@@ -331,7 +331,7 @@ def train(
             all_logits = np.array(eval_logits)
             all_label = np.array(eval_labels)
             all_pred = np.where(all_logits > 0.5, 1, 0)
-            if 'TS_PHENO' in modalities[int(ii)]:
+            if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                 eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
                 eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
             else:

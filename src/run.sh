@@ -39,7 +39,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_dim 128 \
                 --perceiver_dim 64 \
                 --model_name "bioLongformer"\
-                --task 'ihm-los'\
+                --task 'ihm-pheno'\
                 --ihm_mod 'TS-Text'\
                 --los_mod 'Text-CXR'\
                 --pheno_mod 'Text-CXR'\
