@@ -143,7 +143,7 @@ def train(
                 else:
                     # import pdb; pdb.set_trace()
                     out = model(indict=indict) if args.lora else model(indict)
-                    if 'TS_PHENO' in modalities[int(ii)]:
+                    if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                         loss=criterion[int(ii)](out, label.float().to(device))
                     else:
                         loss=criterion[int(ii)](out, label.to(device))
@@ -202,7 +202,7 @@ def train(
                     for i in range(len(modalities[ii])):
                         indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
                     out = model(indict=indict) if args.lora else model(indict)
-                    if 'TS_PHENO' in modalities[int(ii)]:
+                    if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                         logit = torch.nn.functional.sigmoid(out)
                     else:
                         logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
@@ -214,7 +214,7 @@ def train(
                 all_logits = np.array(eval_logits)
                 all_label = np.array(eval_labels)
                 # use auc score as picking best performing model metric
-                if 'TS_PHENO' in modalities[int(ii)]:
+                if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                     eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
                     accs += eval_vals['auc_scores'].mean()
                 else:
@@ -243,7 +243,10 @@ def train(
             'ihm_mod': args.ihm_mod,
             'los_mod': args.los_mod,
             'pheno_mod': args.pheno_mod,
-            'ihm-los-pheno_mod': args.ihm_mod,
+            'ihm-los-pheno_mod': args.ihm_mod+'-'+args.los_mod+'-'+args.pheno_mod,
+            'ihm-los_mod': args.ihm_mod+'-'+args.los_mod,
+            'ihm-pheno_mod': args.ihm_mod+'-'+args.pheno_mod,
+            'los-pheno_mod': args.los_mod+'-'+args.pheno_mod,
             'readmission_mod': args.rad_mod,
             'mortality_mod': args.mor_mod
         }
@@ -261,7 +264,10 @@ def train(
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         else:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+            if args.shared_modality_encoders:
+                out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+            else:
+                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
             os.makedirs(os.path.dirname(out_fname), exist_ok=True)
             f = open(out_fname, 'a')
         f.write(f"\n################## New Experiment ##################\n")
@@ -312,7 +318,7 @@ def train(
                     indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
                 
                 out = model(indict=indict) if args.lora else model(indict)
-                if 'TS_PHENO' in modalities[int(ii)]:
+                if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                     logit = torch.nn.functional.sigmoid(out)
                 else:
                     logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
@@ -325,7 +331,7 @@ def train(
             all_logits = np.array(eval_logits)
             all_label = np.array(eval_labels)
             all_pred = np.where(all_logits > 0.5, 1, 0)
-            if 'TS_PHENO' in modalities[int(ii)]:
+            if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                 eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
                 eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
             else:

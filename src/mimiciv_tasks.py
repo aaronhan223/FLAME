@@ -336,8 +336,10 @@ def main():
             args.num_of_notes, 
             BioBert
         )
-        if 'IHM' in all_encoders or 'LOS' in all_encoders:
+        if 'IHM' in all_encoders:
             all_encoders['PHENO'] = all_encoders['IHM']
+        elif 'LOS' in all_encoders:
+            all_encoders['PHENO'] = all_encoders['LOS']
         else:
             all_encoders['PHENO'] = pheno_encoder
     
@@ -665,11 +667,15 @@ def main():
     else:
         raise ValueError("fusion_model should be multimodalityperceiver or crossattntransformer")
     model.to_logitslist = logits.to(device)
+    # import pdb; pdb.set_trace()
     task_mods_dict = {
         'ihm_mod': args.ihm_mod,
         'los_mod': args.los_mod,
         'pheno_mod': args.pheno_mod,
-        'ihm-los-pheno_mod': args.ihm_mod,
+        'ihm-los-pheno_mod': args.ihm_mod+'-'+args.los_mod+'-'+args.pheno_mod,
+        'ihm-los_mod': args.ihm_mod+'-'+args.los_mod,
+        'ihm-pheno_mod': args.ihm_mod+'-'+args.pheno_mod,
+        'los-pheno_mod': args.los_mod+'-'+args.pheno_mod,
         'readmission_mod': args.rad_mod,
         'mortality_mod': args.mor_mod
     }
@@ -814,7 +820,10 @@ def main():
         savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+        if args.shared_modality_encoders:
+            savedir = f'./checkpoints/{args.fusion_model}/multitask/{args.task}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+        else:
+            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
         torch.save(model,savedir)
