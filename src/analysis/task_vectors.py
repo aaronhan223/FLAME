@@ -149,7 +149,7 @@ def parse_args():
     parser.add_argument('--base_task_mods', type=str, default='', help='Modalities used in the base task for transfer learning')
     parser.add_argument('--base_task', type=str, default='', help='Base task for transfer learning')
     parser.add_argument('--new_task_mods', type=str, default='', help='Modalities used in the new task for transfer learning')
-    parser.add_argument('--results_dir', type=str, default='/cis/home/schaud35/clinical-highmmt/src/analysis/', help='Directory to store results') 
+    parser.add_argument('--results_dir', type=str, default='/cis/home/xhan56/code/clinical-highmmt/src/analysis/', help='Directory to store results') 
     parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
     parser.add_argument('--log', type=bool, default=True)
     args = parser.parse_args()
@@ -202,7 +202,7 @@ def plot_layer_energy(svd_task, task_name="", base_task_name="", args=None):
     plt.title("Total fine-tuning change per layer")
     plt.tight_layout()
     # plt.show()
-    save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}"
+    save_dir = f"/cis/home/xhan56/code/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     plt.savefig(f"{save_dir}/layer_energy.png")
@@ -218,7 +218,7 @@ def plot_singular_values_per_layer(svd_task, task_name="", base_task_name="", ar
         plt.grid(True)
         plt.tight_layout()
         # plt.show()
-        save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}/{name}"
+        save_dir = f"/cis/home/xhan56/code/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}/{name}"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         plt.savefig(f"{save_dir}/singular_values.png")
@@ -239,7 +239,7 @@ def compare_singular_values(svd_results, task_names=[], base_task_name="", suffi
         plt.grid(True)
         plt.tight_layout()
         # plt.show()
-        save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/compare_singular_values{suffix}/{name}"
+        save_dir = f"/cis/home/xhan56/code/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/compare_singular_values{suffix}/{name}"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         plt.savefig(f"{save_dir}/compare_singular_values.png")
@@ -259,7 +259,7 @@ def plot_rank_energy_ratio_per_layer(svd_task, task_name="", base_task_name="", 
     plt.title("Effective rank of fine-tuning update per layer")
     plt.tight_layout()
     # plt.show()
-    save_dir = f"/cis/home/schaud35/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}"
+    save_dir = f"/cis/home/xhan56/code/clinical-highmmt/src/analysis/plots/{args.fusion_model}/{base_task_name}/{task_name}"
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     plt.savefig(f"{save_dir}/rank_energy_ratio_per_layer.png")
@@ -271,26 +271,28 @@ if __name__ == "__main__":
     base_task_mod = args.base_task_mods
     new_task_mod = args.new_task_mods
 
-    ihm = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_{base_task}_{new_task_mod}.pt')
-    ihm_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_{base_task}_{new_task_mod}_{base_task.upper()}_encoder.pt')
-    los_ft = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}.pt')
-    los_ft_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}_LOS_encoder.pt')
-    los_lora = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}.pt')
-    los_lora_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}_LOS_encoder.pt')
-    los = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_los_{new_task_mod}.pt')
-    los_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_los_{new_task_mod}_LOS_encoder.pt')
-    pheno_ft = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}.pt')
-    pheno_ft_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}_PHENO_encoder.pt')
-    pheno_lora = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}.pt')
-    pheno_lora_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}_PHENO_encoder.pt')
-    pheno = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}.pt')
-    pheno_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}_PHENO_encoder.pt')
-    mortality = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_mortality_T1-T2-T3-T4-T5.pt')
-    mortality_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_mortality_T1-T2-T3-T4-T5_MOR_encoder.pt')
-    readmission = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_readmission_T1-T2-T3-T4-T5.pt')
-    readmission_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_readmission_T1-T2-T3-T4-T5_RAD_encoder.pt')
-    ihm_los_pheno = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_ihm-los-pheno_{new_task_mod}.pt')
-    ihm_los_pheno_enc = torch.load(f'/cis/home/schaud35/clinical-highmmt/src/checkpoints/{args.fusion_model}/mimic_iv_ihm-los-pheno_{new_task_mod}_IHM_encoder.pt')
+    print(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}_PHENO_encoder.pt')
+
+    ihm = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_{base_task}_{new_task_mod}.pt')
+    ihm_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_{base_task}_{new_task_mod}_{base_task.upper()}_encoder.pt')
+    los_ft = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}.pt')
+    los_ft_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_ft_from_{base_task}_LOS_encoder.pt')
+    los_lora = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}.pt')
+    los_lora_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_los_{new_task_mod}_lora_from_{base_task}_LOS_encoder.pt')
+    los = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_los_{new_task_mod}.pt')
+    los_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_los_{new_task_mod}_LOS_encoder.pt')
+    pheno_ft = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}.pt')
+    pheno_ft_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_ft_from_{base_task}_PHENO_encoder.pt')
+    pheno_lora = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}.pt')
+    pheno_lora_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/{base_task}/{base_task_mod}/mimic_iv_pheno_{new_task_mod}_lora_from_{base_task}_PHENO_encoder.pt')
+    pheno = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}.pt')
+    pheno_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_pheno_{new_task_mod}_PHENO_encoder.pt')
+    mortality = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_mortality_T1-T2-T3-T4-T5.pt')
+    mortality_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_mortality_T1-T2-T3-T4-T5_MOR_encoder.pt')
+    readmission = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_readmission_T1-T2-T3-T4-T5.pt')
+    readmission_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_readmission_T1-T2-T3-T4-T5_RAD_encoder.pt')
+    ihm_los_pheno = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_ihm-los-pheno_{new_task_mod}.pt')
+    ihm_los_pheno_enc = torch.load(f'/cis/home/xhan56/code/clinical-highmmt/src/checkpoints_copied/{args.fusion_model}/mimic_iv_ihm-los-pheno_{new_task_mod}_IHM_encoder.pt')
     # for it in [('ihm', ihm, ihm_enc, False, False), ('los', los_ft, los_ft_enc, True, False), ('los', los_lora, los_lora_enc, False, True), ('los', los, los_enc, False, False), ('pheno', pheno_ft, pheno_ft_enc, True, False), ('pheno', pheno_lora, pheno_lora_enc, False, True), ('pheno', pheno, pheno_enc, False, False)]:
     # for it in [('pheno', los, los_enc, False, False)]:
         # print(f"Evaluating {it[0]} model...")
@@ -332,7 +334,7 @@ if __name__ == "__main__":
     # df_pheno_enc = pd.DataFrame({    "layer": list(pheno_enc_ranks.keys(
     # )),    "rank": [v["rank"] for v in pheno_enc_ranks.values()]})
     # df_pheno_enc.to_csv(f'pheno_enc_ranks.csv')
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     
     svd_ihm_los_pheno = layerwise_svd(ihm_los_pheno)
     ihm_los_pheno_ranks = print_layerwise_ranks(ihm_los_pheno, tol=rank_cutoff)
@@ -345,7 +347,7 @@ if __name__ == "__main__":
     df_ihm_los_pheno_enc = pd.DataFrame({    "layer": list(ihm_los_pheno_enc_ranks.keys(
     )),    "rank": [v["rank"] for v in ihm_los_pheno_enc_ranks.values()]})
     df_ihm_los_pheno_enc.to_csv(f'ihm_los_pheno_enc_ranks.csv')
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
 
     svd_svd_mortality = layerwise_svd(mortality)
     mortality_ranks = print_layerwise_ranks(mortality, tol=rank_cutoff)
@@ -414,7 +416,7 @@ if __name__ == "__main__":
     evaluate_model(args, model=los.cuda(), encoder=los_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_eigen_ihm_to_los')
     args.task='ihm'
     evaluate_model(args, model=ihm.cuda(), encoder=ihm_enc.cuda(), device='cuda', inter_dir=f'lower_rank_{rank_cutoff}_eigen_los_to_ihm')
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
 
 
     start_copy_layer = 10
@@ -427,7 +429,7 @@ if __name__ == "__main__":
     
     ihm_ranks = print_layerwise_ranks(ihm)
     concat_ranks = print_layerwise_concat_ranks(ihm, los)
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     task_vectors = {
         # "ihm_TS-Text-CXR": get_task_vectors(ihm, ihm),
         f"los_ft_{new_task_mod}/{base_task}_{base_task_mod}": get_task_vectors(ihm, los_ft),
@@ -452,4 +454,4 @@ if __name__ == "__main__":
     compare_singular_values(svd_results, task_names=[f"los_ft_{new_task_mod}", f"los_{new_task_mod}", f"pheno_ft_{new_task_mod}", f"pheno_{new_task_mod}"], base_task_name=f"{base_task}_{base_task_mod}", suffix=f'_{new_task_mod}', args=args)
     compare_singular_values(svd_results, task_names=[f"los_lora_{new_task_mod}", f"pheno_lora_{new_task_mod}"], base_task_name=f"{base_task}_{base_task_mod}", suffix=f"_{new_task_mod}_lora", args=args)
     
-    import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()

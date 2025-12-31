@@ -62,4 +62,5 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --linear_probe \
                 --base_task_mods 'TS-Text-CXR' \
                 --base_task 'los' \
+                --results_dir '/cis/home/xhan56/code/clinical-highmmt/src/results' \
                 # --shared_modality_encoders \
