@@ -132,7 +132,6 @@ def train(
                 indict={}
                 for i in range(len(modalities[int(ii)])):
                     indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
-                
                 if recon:
                     out, rec = model(indict=indict, use_recon=True) if args.lora else model(indict, use_recon=True)
                     stuffs = []

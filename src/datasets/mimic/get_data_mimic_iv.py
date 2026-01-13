@@ -172,7 +172,7 @@ class TSNote_Irg(Dataset):
             reg_ts=torch.tensor(reg_ts,dtype=torch.float)
         else:
             reg_ts=None
-
+        
         if 'Text' in self.modeltype and not data_detail['text_missing']:
             text_emb = np.array(data_detail['text_embeddings'])
             text_emb = torch.tensor(text_emb, dtype=torch.float)
@@ -281,9 +281,10 @@ class TSNote_Irg(Dataset):
              'cxr_feats': cxr_feats, 'cxr_time': cxr_time_to_end, 'cxr_time_mask': cxr_time_mask, 'cxr_missing': data_detail['cxr_missing'],
              'ecg_feats': ecg_feats, 'ecg_time': ecg_time_to_end, 'ecg_time_mask': ecg_time_mask, 'ecg_missing': data_detail['ecg_missing']}    
         elif self.modeltype == 'CXR_Text':
-            return {'idx': idx, "input_ids": text_token, "label": label, "attention_mask": atten_mask, "text_embeddings": text_emb, \
+            return {'idx': idx, 'ts': ts, 'ts_mask': ts_mask, 'ts_tt': ts_tt, 'reg_ts': reg_ts, 
+            "input_ids": text_token, "label": label, "attention_mask": atten_mask, "text_embeddings": text_emb, \
             'note_time': text_time_to_end, 'text_time_mask': text_time_mask, 'text_missing': data_detail['text_missing'],
-            'cxr_feats': cxr_feats, 'cxr_time': cxr_time_to_end, 'cxr_time_mask': cxr_time_mask, 'cxr_missing': data_detail['cxr_missing']}
+            'cxr_feats': cxr_feats, 'cxr_time': cxr_time_to_end, 'cxr_time_mask': cxr_time_mask, 'cxr_missing': data_detail['cxr_missing'], 'ecg_missing': data_detail['ecg_missing']}
     def __len__(self):
         return len(self.data)
 

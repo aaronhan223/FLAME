@@ -17,6 +17,7 @@ from transformers import (AutoTokenizer,
                           LongformerTokenizer,
                          )
 from src.crossattnperceiver import MultiModalityPerceiver, InputModality, PerceiverWrapper, CrossAttnTransformer
+from src.fusemoe import *
 from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder
 from src.utils import create_directory, dump_pickle
@@ -147,6 +148,8 @@ def parse_args():
     parser.add_argument('--fine_tune', action='store_true')
     parser.add_argument('--self_cross', action='store_true')
     parser.add_argument('--TS_mixup', action='store_true', help='mix up reg and irg data')
+    parser.add_argument('--mixup_level', type=str, default='batch', help='mixup level: batch or batch_seq or batch_seq_feature')
+    parser.add_argument('--cross_method', type=str, default='moe', help='cross attention method: moe or self_cross or hme')
 
     parser.add_argument('--fp16', action='store_true')
     parser.add_argument('--debug', action='store_true')
@@ -164,6 +167,10 @@ def parse_args():
     parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
     parser.add_argument('--linear_probe', action='store_true')
     parser.add_argument('--shared_modality_encoders', action='store_true', help='Use shared modality encoders across tasks')
+    parser.add_argument("--num_of_experts", nargs='*', type=int, help="number of MLPs in MoE, for HME need to specify each level")
+    parser.add_argument("--top_k", nargs='*', type=int, help="the number of experts finally combined together for joint and permod routers")
+    parser.add_argument("--router_type", default='joint', type=str, help="all router types: joint, permod, disjoint")
+    parser.add_argument("--gating_function", nargs='*', type=str, help="all gating functions: softmax, laplace, gaussian, enter at least one")
     args = parser.parse_args()
     return args
 
@@ -623,7 +630,18 @@ def main():
         for m in ['TS', 'Text', 'CXR']:
             perceiver_mod.append(all_modalities[m])
     # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
-    
+    task_mods_dict = {
+        'ihm_mod': args.ihm_mod,
+        'los_mod': args.los_mod,
+        'pheno_mod': args.pheno_mod,
+        'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
+        'ihm-los_mod': args.ihm_mod+'_'+args.los_mod,
+        'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
+        'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
+        'readmission_mod': args.rad_mod,
+        'mortality_mod': args.mor_mod
+    }
+    task_mod_key = f'{args.task}_mod'
     if args.fusion_model=="multimodalityperceiver":
         model = MultiModalityPerceiver(
             modalities=perceiver_mod,
@@ -664,22 +682,20 @@ def main():
             cross_depth=1# Note that this parameter is 1 in the original Lucidrain implementation
             # whether to weight tie layers (optional, as indicated in the diagram)
         ).to(device)
+    elif args.fusion_model in ['fusemoe']:
+        model = MULTCrossModel(
+            args,
+            device,
+            modeltype=task_mods_dict[task_mod_key],
+            modalities=perceiver_mod,
+            num_classes=1
+        ).to(device)
     else:
         raise ValueError("fusion_model should be multimodalityperceiver or crossattntransformer")
+    
     model.to_logitslist = logits.to(device)
     # import pdb; pdb.set_trace()
-    task_mods_dict = {
-        'ihm_mod': args.ihm_mod,
-        'los_mod': args.los_mod,
-        'pheno_mod': args.pheno_mod,
-        'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
-        'ihm-los_mod': args.ihm_mod+'_'+args.los_mod,
-        'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
-        'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
-        'readmission_mod': args.rad_mod,
-        'mortality_mod': args.mor_mod
-    }
-    task_mod_key = f'{args.task}_mod'
+    
     if args.fine_tune or args.lora:
         # Load the saved model checkpoint
         checkpoint = torch.load(f'./checkpoints/{args.fusion_model}/mimic_iv_{args.base_task}_{args.base_task_mods}.pt', map_location=device)
