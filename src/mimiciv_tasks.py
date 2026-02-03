@@ -285,7 +285,10 @@ def main():
         ihm_mods = list(map(lambda s: s + '_IHM', args.ihm_mod.split("-")))
         assert len(ihm_mods) > 1, "At least two modalities per task!"
         modalities_per_task.append(ihm_mods)
-        logit_dim = len(ihm_mods) * (len(ihm_mods) - 1) * args.perceiver_dim
+        if args.fusion_model in ['fusemoe']:
+            logit_dim = len(ihm_mods) * args.embed_dim
+        else:
+            logit_dim = len(ihm_mods) * (len(ihm_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
         ihm_encoder = ModalityEncoders(
             args, 
@@ -307,7 +310,10 @@ def main():
         los_mods = list(map(lambda s: s + '_LOS', args.los_mod.split("-")))
         assert len(los_mods) > 1, "At least two modalities per task!"
         modalities_per_task.append(los_mods)
-        logit_dim = len(los_mods) * (len(los_mods) - 1) * args.perceiver_dim
+        if args.fusion_model in ['fusemoe']:
+            logit_dim = len(los_mods) * args.embed_dim
+        else:
+            logit_dim = len(los_mods) * (len(los_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
         
         los_encoder = ModalityEncoders(
@@ -333,7 +339,10 @@ def main():
         pheno_mods = list(map(lambda s: s + '_PHENO', args.pheno_mod.split("-")))
         assert len(pheno_mods) > 1, "At least two modalities per task!"
         modalities_per_task.append(pheno_mods)
-        logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
+        if args.fusion_model in ['fusemoe']:
+            logit_dim = len(pheno_mods) * args.embed_dim
+        else:
+            logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 25)))
         pheno_encoder = ModalityEncoders(
             args, 
@@ -359,7 +368,10 @@ def main():
         train_weights.append(1.0)
         rad_mods = list(map(lambda s: s + '_RAD', args.rad_mod.split("-")))
         modalities_per_task.append(rad_mods)
-        logit_dim = len(rad_mods) * (len(rad_mods) - 1) * args.perceiver_dim
+        if args.fusion_model in ['fusemoe']:
+            logit_dim = len(rad_mods) * args.embed_dim
+        else:
+            logit_dim = len(rad_mods) * (len(rad_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
         readmission_encoder = FSEncoder(
             tokenizer=tokenizer_rad,
@@ -382,7 +394,10 @@ def main():
         train_weights.append(1.0)
         mor_mods = list(map(lambda s: s + '_MOR', args.mor_mod.split("-")))
         modalities_per_task.append(mor_mods)
-        logit_dim = len(mor_mods) * (len(mor_mods) - 1) * args.perceiver_dim
+        if args.fusion_model in ['fusemoe']:
+            logit_dim = len(mor_mods) * args.embed_dim
+        else:
+            logit_dim = len(mor_mods) * (len(mor_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
         mortality_encoder = FSEncoder(
             tokenizer=tokenizer_mor,
@@ -619,17 +634,6 @@ def main():
     # TODO: each feature a modality? clustering feature?
     # TODO: should we keep feature specific encoders?
     # import pdb; pdb.set_trace()
-    perceiver_mod = []
-    if not args.shared_modality_encoders:
-        for t in modalities_per_task:
-            for m in t:
-                perceiver_mod.append(all_modalities[m])
-    else:
-        # Common modalities across all tasks
-        perceiver_mod = []
-        for m in ['TS', 'Text', 'CXR']:
-            perceiver_mod.append(all_modalities[m])
-    # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
     task_mods_dict = {
         'ihm_mod': args.ihm_mod,
         'los_mod': args.los_mod,
@@ -642,6 +646,19 @@ def main():
         'mortality_mod': args.mor_mod
     }
     task_mod_key = f'{args.task}_mod'
+    perceiver_mod = []
+    if not args.shared_modality_encoders:
+        for t in modalities_per_task:
+            for m in t:
+                perceiver_mod.append(all_modalities[m])
+    else:
+        # Common modalities across all tasks
+        perceiver_mod = []
+        shared_modalities = set([m for tm in task_mods_dict[task_mod_key].split('_') for m in tm.split('-')])
+        for m in shared_modalities:
+            perceiver_mod.append(all_modalities[m])
+    # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
+    
     if args.fusion_model=="multimodalityperceiver":
         model = MultiModalityPerceiver(
             modalities=perceiver_mod,

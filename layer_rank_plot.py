@@ -27,33 +27,46 @@ def combine_csv_files(file_list, output_file):
     combined_df.to_csv(output_file, index=False)
     return combined_df
 
-data_dir = "/cis/home/schaud35/clinical-highmmt/layerwise_ranks/multitask"
-df_enc = combine_csv_files(
-    [
-        f"{data_dir}/{f}" for f in os.listdir(data_dir) if f.endswith("_enc_ranks.csv")
-    ],
-    f"{data_dir}/multimodal_multitask_enc_ranks_combined.csv"
-)
-df = combine_csv_files(
-    [
-        f"{data_dir}/{f}" for f in os.listdir(data_dir) if "_enc_ranks" not in f
-    ],
-    f"{data_dir}/multimodal_multitask_ranks_combined.csv"
-)
-import pdb; pdb.set_trace()
+data_dir = "/cis/home/schaud35/clinical-highmmt/layerwise_ranks/multitask/fusemoe"
+# df_enc = combine_csv_files(
+#     [
+#         f"{data_dir}/{f}" for f in os.listdir(data_dir) if f.endswith("_enc_ranks.csv")
+#     ],
+#     f"{data_dir}/multimodal_multitask_enc_ranks_combined.csv"
+# )
+# df = combine_csv_files(
+#     [
+#         f"{data_dir}/{f}" for f in os.listdir(data_dir) if "_enc_ranks" not in f
+#     ],
+#     f"{data_dir}/multimodal_multitask_ranks_combined.csv"
+# )
+# import pdb; pdb.set_trace()
 
 
 # # Read, skipping title + blank row
-# df = pd.read_csv(
-#     "multimodal_multitask_enc_ranks.csv",
-#     skiprows=2
-# )
+df = pd.read_csv(
+    f"{data_dir}/multimodal_multitask_ranks_combined.csv",
+    skiprows=1
+)
 
 # Rename columns explicitly
-df.columns = ["layer", "IHM+LOS+PHENO", "IHM", "LOS", "PHENO"]
+# CrossAttnTransformer multimodal multitask
+# df.columns = ["layer", "IHM+LOS+PHENO", "IHM", "LOS", "PHENO"]
+# CrossAttnTransformer fleximodal multitask
+# df.columns = ["layer", "IHM-LOS_TS-Text-CXR_Text-CXR", "IHM-LOS_TS-Text-CXR_TS-CXR", "IHM-LOS_TS-Text-CXR_TS-Text",
+#               "IHM-PHENO_TS-Text-CXR_Text-CXR", "IHM-PHENO_TS-Text-CXR_TS-CXR", "IHM-PHENO_TS-Text-CXR_TS-Text",
+#               "LOS-PHENO_TS-Text-CXR_Text-CXR", "LOS-PHENO_TS-Text-CXR_TS-CXR", "LOS-PHENO_TS-Text-CXR_TS-Text",
+#               ]
+# FuseMoe fleximodal multitask
+df.columns = ["layer", "IHM_TS-Text-CXR", "LOS_TS-Text-CXR", "PHENO_TS-Text-CXR",
+                "IHM-LOS_TS-Text-CXR_TS-Text-CXR", "IHM-LOS_TS-Text_TS-Text",
+                "IHM_TS-Text", "LOS_TS-Text", "PHENO_TS-Text",
+             ]
 
 # Keep only meaningful columns
-df = df[["layer", "IHM", "LOS", "PHENO", "IHM+LOS+PHENO"]]
+# df = df[["layer", "IHM", "LOS", "PHENO", "IHM+LOS+PHENO"]]
+modalities = "TS-Text"
+df = df[["layer", f"IHM_{modalities}", f"LOS_{modalities}", f"PHENO_{modalities}", f"IHM-LOS_{modalities}_{modalities}"]]
 
 # Replace "-" with NaN and convert to numeric
 df = df.replace("-", pd.NA)
@@ -92,4 +105,4 @@ plt.yticks(
 
 plt.title("Layer-wise Rank (SV>0.001) Heatmap Across Tasks")
 plt.tight_layout()
-plt.savefig("layer_enc_rank_heatmap.png", dpi=300)
+plt.savefig(f"{data_dir}/{modalities}_layer_rank_heatmap.png", dpi=300)

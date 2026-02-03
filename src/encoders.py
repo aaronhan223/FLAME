@@ -122,7 +122,6 @@ class BertForRepresentation(nn.Module):
             if 'Longformer' in self.model_name:
 
                 attention_mask-=1
-
                 text_embeddings=self.bert(input_ids, global_attention_mask=attention_mask)
             else:
                 text_embeddings=self.bert(input_ids, attention_mask=attention_mask)
@@ -179,7 +178,7 @@ class ModalityEncoders(nn.Module):
         if "Text" in self.modalities:
             self.orig_d_txt = orig_d_txt
             self.text_seq_num = text_seq_num
-            self.bertrep = BertForRepresentation(args, Biobert)
+            self.bertrep = BertForRepresentation(args, Biobert).to(self.device)
             self.time_attn_text = multiTimeAttention(self.orig_d_txt, self.device, args.embed_dim, args.embed_time, args.num_heads)
 
         if "CXR" in self.modalities:
@@ -230,7 +229,7 @@ class ModalityEncoders(nn.Module):
             if self.use_pt_text_embeddings:
                 x_txt = text_emb
             else:
-                x_txt = self.bertrep(input_ids_sequences, attn_mask_sequences)
+                x_txt = self.bertrep(input_ids_sequences.to(self.device), attn_mask_sequences.to(self.device))
                
             time_key = self.learn_time_embedding(note_time_list).to(self.device)
             proj_x_txt = self.time_attn_text(time_query, time_key, x_txt, note_time_mask_list)

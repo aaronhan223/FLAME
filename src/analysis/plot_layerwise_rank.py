@@ -329,19 +329,20 @@ if __name__ == "__main__":
     #     start_layer_target=['cross_layers.0.0']  # Inject into LOS here
     # )
     # evaluate_model(args, model=ihm.cuda(), encoder=ihm_enc.cuda(), device='cuda', custom_forward=composite_forward)
+    savedir = "/cis/home/schaud35/clinical-highmmt/layerwise_ranks/multitask"
     rank_cutoff = 0.001
     
     svd_multitask = layerwise_svd(multitask_model)
     multitask_ranks = print_layerwise_ranks(multitask_model, tol=rank_cutoff)
     df_multitask = pd.DataFrame({"layer": list(multitask_ranks.keys(
     )), "rank": [v["rank"] for v in multitask_ranks.values()]})
-    df_multitask.to_csv(f'{args.task}_{task_mods_dict[args.task+"_mod"]}_ranks.csv')
+    df_multitask.to_csv(f'{savedir}/{args.fusion_model}/{args.task}_{task_mods_dict[args.task+"_mod"]}_ranks.csv')
     
     svd_multitask_enc = layerwise_svd(multitask_model_enc)
     multitask_enc_ranks = print_layerwise_ranks(multitask_model_enc, tol=rank_cutoff)
     df_multitask_enc = pd.DataFrame({"layer": list(multitask_enc_ranks.keys(
     )), "rank": [v["rank"] for v in multitask_enc_ranks.values()]})
-    df_multitask_enc.to_csv(f'{args.task}_{task_mods_dict[args.task+"_mod"]}_enc_ranks.csv')
+    df_multitask_enc.to_csv(f'{savedir}/{args.fusion_model}/{args.task}_{task_mods_dict[args.task+"_mod"]}_enc_ranks.csv')
     exit()
 
     # svd_los = layerwise_svd(los)

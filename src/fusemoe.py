@@ -58,6 +58,11 @@ class MULTCrossModel(nn.Module):
         self.d_txt = args.embed_dim
         self.d_cxr = args.embed_dim
         self.d_ecg = args.embed_dim
+        self.d_t1 = args.embed_dim
+        self.d_t2 = args.embed_dim
+        self.d_t3 = args.embed_dim
+        self.d_t4 = args.embed_dim
+        self.d_t5 = args.embed_dim
 
         # if self.irregular_learn_emb_ts or self.irregular_learn_emb_text:
         #     self.time_query=torch.linspace(0, 1., self.tt_max)
@@ -130,7 +135,17 @@ class MULTCrossModel(nn.Module):
             if "CXR" in self.modeltype:
                 dim += self.d_cxr
             if "ECG" in self.modeltype:
-                dim += self.d_ecg            
+                dim += self.d_ecg   
+            if "T1" in self.modeltype:
+                dim += self.d_t1
+            if "T2" in self.modeltype:
+                dim += self.d_t2
+            if "T3" in self.modeltype:
+                dim += self.d_t3
+            if "T4" in self.modeltype:
+                dim += self.d_t4
+            if "T5" in self.modeltype:
+                dim += self.d_t5         
 
             self.proj1 = nn.Linear(dim, dim)
             self.proj2 = nn.Linear(dim, dim)
@@ -170,12 +185,12 @@ class MULTCrossModel(nn.Module):
         #         self.proj2 = nn.Linear(self.d_ts+self.d_cxr, self.d_ts+self.d_cxr)
         #         self.out_layer = nn.Linear(self.d_ts+self.d_cxr, output_dim)
 
-        if 'ihm' in self.task or 'los' in self.task:
-            self.loss_fct1=nn.CrossEntropyLoss()
-        elif 'pheno' in self.task:
-            self.loss_fct1=nn.BCEWithLogitsLoss()
-        else:
-            raise ValueError("Unknown task")
+        # if 'ihm' in self.task or 'los' in self.task:
+        #     self.loss_fct1=nn.CrossEntropyLoss()
+        # elif 'pheno' in self.task:
+        #     self.loss_fct1=nn.BCEWithLogitsLoss()
+        # else:
+        #     raise ValueError("Unknown task")
 
     def get_network(self, self_type='ts_mem', layers=-1):
         if self_type == 'ts_mem':
@@ -406,10 +421,42 @@ class MULTCrossModel(nn.Module):
                     modalities.append('ECG')
                 else:
                     modalities = ['ECG']
+            if 'T1' in m:
+                proj_x_t1 = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('T1')
+                else:
+                    modalities = ['T1']
+            if 'T2' in m:
+                proj_x_t2 = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('T2')
+                else:
+                    modalities = ['T2']
+            if 'T3' in m:
+                proj_x_t3 = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('T3')
+                else:
+                    modalities = ['T3']
+            if 'T4' in m:   
+                proj_x_t4 = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('T4')
+                else:
+                    modalities = ['T4']
+            if 'T5' in m:
+                proj_x_t5 = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('T5')
+                else:
+                    modalities = ['T5']
+
         modalities = sorted(modalities)
         modalities = '_'.join(modalities)
         
         balance_loss = None
+        # import pdb; pdb.set_trace()
         if self.cross_method in ["self_cross", "moe", "hme"]:
             if modalities == "TS_Text":
                 hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_txt, proj_x_ts], ['txt', 'ts'])
@@ -419,7 +466,8 @@ class MULTCrossModel(nn.Module):
                 hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_ts, proj_x_cxr, proj_x_txt], ['ts', 'cxr', 'txt'])
             elif modalities == "CXR_ECG_TS_Text":
                 hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_ts, proj_x_cxr, proj_x_txt, proj_x_ecg], ['ts', 'cxr', 'txt', 'ecg'])
-
+            elif modalities == "T1_T2_T3_T4_T5":
+                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_t1, proj_x_t2, proj_x_t3, proj_x_t4, proj_x_t5], ['t1', 't2', 't3', 't4', 't5'])
             if hiddens is None:
                 return None
             # h_txt_with_ts, h_ts_with_txt=hiddens

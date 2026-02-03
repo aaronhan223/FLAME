@@ -506,7 +506,7 @@ class TransformerCrossEncoder(nn.Module):
         x_list = x_in_list
         lengths, positions = [], []
         total_balance_loss = None
-
+        
         for i in range(self.num_modalities):
             lengths.append(x_list[i].size(0))
         x_list = [self.embed_scale * x_in for x_in in x_in_list]
