@@ -39,10 +39,10 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_dim 128 \
                 --perceiver_dim 64 \
                 --model_name "bioLongformer"\
-                --task 'ihm-pheno'\
+                --task 'los-pheno'\
                 --ihm_mod 'TS-Text'\
-                --los_mod 'Text-CXR'\
-                --pheno_mod 'Text-CXR'\
+                --los_mod 'TS-Text'\
+                --pheno_mod 'TS-CXR'\
                 --rad_mod 'T1-T2-T3-T4-T5'\
                 --mor_mod 'T1-T2-T3-T4-T5'\
                 --mimic_path '/export/io79/data/schaud35/'\
@@ -59,7 +59,8 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --use_pt_text_embeddings \
                 --reg_ts \
                 --fusion_model 'crossattntransformer' \
-                --shared_modality_encoders
+                --shared_modality_encoders \
+                --results_dir '/cis/home/xhan56/code/clinical-highmmt/src/results' \
                 # --linear_probe \
                 # --base_task_mods 'TS-Text-CXR' \
                 # --base_task 'los' \
