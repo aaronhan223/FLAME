@@ -468,6 +468,8 @@ class MULTCrossModel(nn.Module):
                 hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_ts, proj_x_cxr, proj_x_txt, proj_x_ecg], ['ts', 'cxr', 'txt', 'ecg'])
             elif modalities == "T1_T2_T3_T4_T5":
                 hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_t1, proj_x_t2, proj_x_t3, proj_x_t4, proj_x_t5], ['t1', 't2', 't3', 't4', 't5'])
+            elif modalities == "CXR_Text":
+                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_cxr, proj_x_txt], ['cxr', 'text'])
             if hiddens is None:
                 return None
             # h_txt_with_ts, h_ts_with_txt=hiddens
