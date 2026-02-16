@@ -162,6 +162,9 @@ cython_debug/
 #.idea/
 
 /src/checkpoints
+/src/checkpoints_copied
 /src/result.txt
 /src/datasets/eicu/physionet.org
 /src/datasets/eicu/processed
+/src/analysis
+/src/results
