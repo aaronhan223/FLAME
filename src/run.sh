@@ -39,8 +39,8 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_dim 128 \
                 --perceiver_dim 64 \
                 --model_name "bioLongformer"\
-                --task 'ihm-los'\
-                --ihm_mod 'Text-CXR'\
+                --task 'ihm-mortality'\
+                --ihm_mod 'TS-Text-CXR'\
                 --los_mod 'TS-Text-CXR'\
                 --pheno_mod 'Text-CXR'\
                 --rad_mod 'T1-T2-T3-T4-T5'\

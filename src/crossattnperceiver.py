@@ -171,7 +171,7 @@ class MultiModalityPerceiver(nn.Module):
                                num_latent_blocks_per_layer=num_latent_blocks_per_layer)
         self.recon=recon
 
-    def forward(self, multi_modality_data: Dict[str, Tensor], mask=None, use_recon=False, get_latent=False, get_pre_logits=False, latents=None, source_mode=None, get_catted=False, unimodal=False, null_pvi=False):
+    def forward(self, multi_modality_data: Dict[str, Tensor], task=None, mask=None, use_recon=False, get_latent=False, get_pre_logits=False, latents=None, source_mode=None, get_catted=False, unimodal=False, null_pvi=False):
         """
         :param data: a dictionary where keys are modality names and Tensor contain a batch
         of modality input data.
@@ -450,7 +450,7 @@ class CrossAttnTransformer(nn.Module):
 
             if get_latent:
                 return latentout[0]
-    
+        # import pdb; pdb.set_trace()
         #print(latentout[0].shape, latentout[0].flatten(start_dim=1).shape)
         outs=[]
         #cross attention layer

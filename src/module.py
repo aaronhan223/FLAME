@@ -5,14 +5,18 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+SEQMOE=True
 from torch import nn
 from torch.nn import Parameter
 import torch.nn.functional as F
-from src.sparse_moe import MoE, MoEConfig
+if not SEQMOE:
+    from src.sparse_moe import MoE, MoEConfig
+else:
+    from src.fusemoe_multitask import SeqMoE, MoEConfig
 from src.hme import HierarchicalMoE
 import sys
 import pdb
-    
+
 
 class Outer(nn.Module):
     def __init__(self,
@@ -327,6 +331,13 @@ class MultiheadAttention(nn.Module):
             bias = bias[start:end]
         return F.linear(input, weight, bias)
 
+def findmodalityandindex(ms, mn):
+    for i, m in enumerate(ms):
+        if mn.lower() == m.name.lower():
+            return m, i
+        elif mn.split('_')[0].lower() == m.name.split('_')[0].lower():
+            return m, i
+    raise ValueError(f"modality {mn} not found in defined modalities")
 
 class TransformerEncoder(nn.Module):
     """
@@ -452,7 +463,7 @@ class TransformerCrossEncoder(nn.Module):
     """
 
     def __init__(self, args, embed_dim, num_heads, layers, device, attn_dropout=0.0, relu_dropout=0.0, res_dropout=0.0,
-                 embed_dropout=0.0, attn_mask=False, q_seq_len_1=None, q_seq_len_2=None, num_modalities=2):
+                 embed_dropout=0.0, attn_mask=False, q_seq_len_1=None, q_seq_len_2=None, modalities=None, num_modalities=3):
         super().__init__()
         self.dropout = embed_dropout      # Embedding dropout
         self.attn_dropout = attn_dropout
@@ -464,6 +475,8 @@ class TransformerCrossEncoder(nn.Module):
         # seq_len_1 is tt_max, the longest sequence length, which is 48 for 48 hrs
         self.q_seq_len_2=q_seq_len_2
         self.num_modalities = num_modalities
+        self.modalities = modalities
+        
         # self.intermediate=intermediate
         self.embed_positions_q_1=nn.Embedding(self.q_seq_len_1, embed_dim, padding_idx=0)
         nn.init.normal_(self.embed_positions_q_1.weight, std=0.02)
@@ -485,7 +498,8 @@ class TransformerCrossEncoder(nn.Module):
                                                     relu_dropout=relu_dropout,
                                                     res_dropout=res_dropout,
                                                     attn_mask=attn_mask,
-                                                    num_modalities=num_modalities)
+                                                    num_modalities=num_modalities,
+                                                    modalities=modalities)
             self.layers.append(new_layer)
 
         self.normalize = True
@@ -504,16 +518,21 @@ class TransformerCrossEncoder(nn.Module):
 
         # x_in_list contains ts and clinical notes tensors
         x_list = x_in_list
-        lengths, positions = [], []
+        lengths, positions, modality_idxs = [], [], []
         total_balance_loss = None
         
-        for i in range(self.num_modalities):
-            lengths.append(x_list[i].size(0))
+        # for i in range(self.num_modalities):
+        #     lengths.append(x_list[i].size(0))
+        for i in range(len(x_in_list)):
+            lengths.append(x_in_list[i].size(0))
+        for mn in modality:
+            m, idx = findmodalityandindex(self.modalities, mn)
+            modality_idxs.append(idx)
         x_list = [self.embed_scale * x_in for x_in in x_in_list]
         if self.q_seq_len_1 is not None:
             for length in lengths:
                 positions.append(torch.tensor(torch.arange(length),dtype=torch.long).to(self.device))
-            x_list = [l(position_x).unsqueeze(0).transpose(0,1) + x for l, x, position_x in zip(self.embed_positions_q, x_list, positions)]
+            x_list = [l(position_x).unsqueeze(0).transpose(0,1) + x for l, x, position_x in zip([self.embed_positions_q[i] for i in modality_idxs], x_list, positions)]
               # Add positional embedding
             x_list = [F.dropout(x, p=self.dropout, training=self.training) for x in x_list]
         # encoder layers
@@ -529,18 +548,19 @@ class TransformerCrossEncoder(nn.Module):
                     total_balance_loss = total_balance_loss + balance_loss
 
         if self.normalize:
-            x_list=[l(x) for l, x in zip(self.layer_norm, x_list)]
+            x_list=[l(x) for l, x in zip([self.layer_norm[i] for i in modality_idxs], x_list)]
         return x_list, total_balance_loss
 
 
 class TransformerCrossEncoderLayer(nn.Module):
     def __init__(self, args, embed_dim, num_heads=4, attn_dropout=0.1, relu_dropout=0.1, res_dropout=0.1, 
-                 attn_mask=False, num_modalities=2):
+                 attn_mask=False, num_modalities=2, modalities=None):
         super().__init__()
         self.args = args
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.num_modalities = num_modalities
+        self.modalities = modalities
         self.pre_self_attn_layer_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
 
         self.self_attns = nn.ModuleList([MultiheadAttention(
@@ -578,16 +598,28 @@ class TransformerCrossEncoderLayer(nn.Module):
         self.pre_ffn_layer_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
         
         if args.cross_method == 'moe':
-            moe_config = MoEConfig(
-            num_experts=args.num_of_experts[0],
-            moe_input_size=args.tt_max * args.embed_dim * num_modalities,
-            moe_hidden_size=args.hidden_size,
-            moe_output_size=args.tt_max * args.embed_dim * num_modalities,
-            top_k=args.top_k[0],
-            router_type=args.router_type,
-            num_modalities=self.num_modalities,#args.num_modalities,
-            gating=args.gating_function[0])
-            self.moe = MoE(moe_config)
+            if not SEQMOE:
+                moe_config = MoEConfig(
+                num_experts=args.num_of_experts[0],
+                moe_input_size=args.tt_max * args.embed_dim * num_modalities,
+                moe_hidden_size=args.hidden_size,
+                moe_output_size=args.tt_max * args.embed_dim * num_modalities,
+                top_k=args.top_k[0],
+                router_type=args.router_type,
+                num_modalities=self.num_modalities,#args.num_modalities,
+                gating=args.gating_function[0],
+                modalities=modalities)
+                self.moe = Moe(moe_config)
+            else:
+                moe_config = MoEConfig(
+                num_experts=args.num_of_experts[0],
+                embed_dim=args.embed_dim,
+                moe_hidden_size=args.hidden_size,
+                modality_types=[m.name.lower() for m in modalities],
+                top_k=args.top_k[0],
+                gating=args.gating_function[0],
+                )
+                self.moe = SeqMoE(moe_config)
             self.moe = self.moe.to('cuda:0')
         elif args.cross_method == 'hme':
             moe_config = MoEConfig(
@@ -598,7 +630,8 @@ class TransformerCrossEncoderLayer(nn.Module):
             top_k=args.top_k,
             router_type=args.router_type,
             num_modalities=args.num_modalities,
-            gating=args.gating_function)
+            gating=args.gating_function,
+            modalities=modalities)
             self.moe = HierarchicalMoE(moe_config)
             self.moe = self.moe.to('cuda:0')
         
@@ -612,13 +645,17 @@ class TransformerCrossEncoderLayer(nn.Module):
             x_list: list of encoded output of shape `(batch, src_len, embed_dim)`
             balance_loss: balance loss from MoE module (None if not using MoE)
         """
+        modality_idxs = []
+        for mn in modality:
+            m, idx = findmodalityandindex(self.modalities, mn)
+            modality_idxs.append(idx)
         residual = x_list
         seq_len, bs = x_list[0].shape[0], x_list[0].shape[1]
         balance_loss = None
 
-        x_list = [l(x) for l, x in zip(self.pre_self_attn_layer_norm, x_list)]
+        x_list = [l(x) for l, x in zip([self.pre_self_attn_layer_norm[i] for i in modality_idxs], x_list)]
 
-        output = [l(query=x, key=x, value=x) for l, x in zip(self.self_attns, x_list)]
+        output = [l(query=x, key=x, value=x) for l, x in zip([self.self_attns[i] for i in modality_idxs], x_list)]
         # attn: output[0][0].shape -> [48, 3, 128]; attn_weights: output[0][1].shape -> [3, 48, 48]
         # filter out attn_weights
         x_list = [x for x, _ in output]
@@ -627,17 +664,22 @@ class TransformerCrossEncoderLayer(nn.Module):
 
         # moe or cross attn
         residual = x_list
-        x_list = [l(x) for l, x in zip(self.pre_encoder_attn_layer_norm, x_list)]
+        x_list = [l(x) for l, x in zip([self.pre_encoder_attn_layer_norm[i] for i in modality_idxs], x_list)]
         if self.args.cross_method in ["moe", "hme"]:
-            x_mod_in = [torch.reshape(x, (bs, -1)) for x in x_list]
-            embd_len_list = [0] + list(np.cumsum([x.shape[1] for x in x_mod_in]))
-            embeddings = torch.concat(x_mod_in, dim=1)
-            if torch.isnan(embeddings).any():
-                return None, None
-            moe_out, balance_loss = self.moe(x_mod_in, modalities=modality)
-            x_mod_out = [moe_out[:, embd_len_list[i]:embd_len_list[i + 1]] for i in range(len(embd_len_list) - 1)]
-            x_allmod_output = [torch.reshape(x, (seq_len, bs, -1)) for x in x_mod_out]
-            moe_output = [F.dropout(x, p=self.res_dropout, training=self.training) for x in x_allmod_output]
+            if not SEQMOE:
+                x_mod_in = [torch.reshape(x, (bs, -1)) for x in x_list]
+                embd_len_list = [0] + list(np.cumsum([x.shape[1] for x in x_mod_in]))
+                embeddings = torch.concat(x_mod_in, dim=1)
+                if torch.isnan(embeddings).any():
+                    return None, None
+                moe_out, balance_loss = self.moe(x_mod_in, modalities=modality)
+                x_mod_out = [moe_out[:, embd_len_list[i]:embd_len_list[i + 1]] for i in range(len(embd_len_list) - 1)]
+                x_allmod_output = [torch.reshape(x, (seq_len, bs, -1)) for x in x_mod_out]
+                moe_output = [F.dropout(x, p=self.res_dropout, training=self.training) for x in x_allmod_output]
+            else:
+                moe_out, balance_loss = self.moe(x_list, modality_labels=[m.lower() for m in modality])
+                moe_output = [F.dropout(x, p=self.res_dropout, training=self.training) for x in moe_out]
+            
             x_list = [r + x for r, x in zip(residual, moe_output)]
 
         if self.args.cross_method == "self_cross":
@@ -652,10 +694,10 @@ class TransformerCrossEncoderLayer(nn.Module):
 
         # FNN
         residual = x_list
-        x_list = [l(x) for l, x in zip(self.pre_ffn_layer_norm, x_list)]
-        x_list = [F.relu(l(x)) for l, x in zip(self.fc1, x_list)]
+        x_list = [l(x) for l, x in zip([self.pre_ffn_layer_norm[i] for i in modality_idxs], x_list)]
+        x_list = [F.relu(l(x)) for l, x in zip([self.fc1[i] for i in modality_idxs], x_list)]
         x_list = [F.dropout(x, p=self.relu_dropout, training=self.training) for x in x_list]
-        x_list = [l(x) for l, x in zip(self.fc2, x_list)]
+        x_list = [l(x) for l, x in zip([self.fc2[i] for i in modality_idxs], x_list)]
         x_list = [F.dropout(x, p=self.res_dropout, training=self.training) for x in x_list]
         x_list = [r + x  for r, x in zip(residual, x_list) ]
         return x_list, balance_loss

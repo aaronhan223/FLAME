@@ -20,6 +20,8 @@ from src.crossattnperceiver import MultiModalityPerceiver, InputModality, Percei
 from src.fusemoe import *
 from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder
+from src.shared_encoders import TimeQueryEncoder
+# from src.shared_encoders import ModalityEncoders, FSEncoder, TimeQueryEncoder
 from src.utils import create_directory, dump_pickle
 from src.preprocess.preprocess_eicu import *
 import torch
@@ -133,6 +135,7 @@ def parse_args():
     parser.add_argument("--irregular_learn_emb_ecg", action='store_true')
     parser.add_argument("--reg_ts", action='store_true')
     parser.add_argument("--tt_max", default=48, type=int, help="max time for irregular time series.")
+    parser.add_argument("--tt_max_eicu", default=1, type=int, help="max time for eicu data.")
     parser.add_argument("--embed_time", default=64, type=int, help="emdedding for time.")
     parser.add_argument('--ts_to_txt', action='store_true')
     parser.add_argument('--txt_to_ts', action='store_true')
@@ -290,13 +293,22 @@ def main():
         else:
             logit_dim = len(ihm_mods) * (len(ihm_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        if args.shared_modality_encoders:
+            shared_time_encoder = TimeQueryEncoder(
+                tt_max=args.tt_max,
+                embed_time=args.embed_time,
+                device=device
+            )
+        else:
+            shared_time_encoder = None
         ihm_encoder = ModalityEncoders(
             args, 
             device, 
             modalities, 
             args.tt_max, 
             args.num_of_notes, 
-            BioBert
+            BioBert,
+            shared_time_encoder=shared_time_encoder.to(device)
         )
         all_encoders['IHM'] = ihm_encoder
     
@@ -316,17 +328,26 @@ def main():
             logit_dim = len(los_mods) * (len(los_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
         
-        los_encoder = ModalityEncoders(
-            args, 
-            device, 
-            modalities, 
-            args.tt_max, 
-            args.num_of_notes, 
-            BioBert
-        )
-        if 'IHM' in all_encoders:
+        if 'IHM' in all_encoders and args.shared_modality_encoders:
             all_encoders['LOS'] = all_encoders['IHM']
         else:
+            if args.shared_modality_encoders:
+                shared_time_encoder = TimeQueryEncoder(
+                tt_max=args.tt_max,
+                embed_time=args.embed_time,
+                device=device
+            )
+            else:
+                shared_time_encoder = None
+            los_encoder = ModalityEncoders(
+                args, 
+                device, 
+                modalities, 
+                args.tt_max, 
+                args.num_of_notes, 
+                BioBert,
+                shared_time_encoder=shared_time_encoder.to(device)
+            )
             all_encoders['LOS'] = los_encoder
     
     if 'pheno' in tasks:
@@ -344,19 +365,30 @@ def main():
         else:
             logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 25)))
-        pheno_encoder = ModalityEncoders(
-            args, 
-            device, 
-            modalities, 
-            args.tt_max, 
-            args.num_of_notes, 
-            BioBert
-        )
+        
         if 'IHM' in all_encoders:
             all_encoders['PHENO'] = all_encoders['IHM']
         elif 'LOS' in all_encoders:
             all_encoders['PHENO'] = all_encoders['LOS']
         else:
+            if args.shared_modality_encoders:
+                    shared_time_encoder = TimeQueryEncoder(
+                    tt_max=args.tt_max,
+                    embed_time=args.embed_time,
+                    device=device
+                )
+            else:
+                shared_time_encoder = None
+                
+            pheno_encoder = ModalityEncoders(
+                args, 
+                device, 
+                modalities, 
+                args.tt_max, 
+                args.num_of_notes, 
+                BioBert,
+                shared_time_encoder=shared_time_encoder.to(device)
+            )
             all_encoders['PHENO'] = pheno_encoder
     
     if 'readmission' in tasks:
@@ -373,6 +405,14 @@ def main():
         else:
             logit_dim = len(rad_mods) * (len(rad_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        if args.shared_modality_encoders:
+            shared_time_encoder = TimeQueryEncoder(
+                tt_max=args.tt_max,
+                embed_time=args.embed_time,
+                device=device
+            )
+        else:
+            shared_time_encoder = None
         readmission_encoder = FSEncoder(
             tokenizer=tokenizer_rad,
             embedding_size=args.embed_dim,
@@ -381,7 +421,9 @@ def main():
             layers=args.layers,
             heads=args.num_heads,
             hidden_size=args.hidden_size,
-            device=device
+            device=device,
+            shared_time_encoder=shared_time_encoder.to(device),
+            args=args
         )
         all_encoders['RAD'] = readmission_encoder
     
@@ -399,18 +441,32 @@ def main():
         else:
             logit_dim = len(mor_mods) * (len(mor_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
-        mortality_encoder = FSEncoder(
-            tokenizer=tokenizer_mor,
-            embedding_size=args.embed_dim,
-            pretrained_embedding=args.use_pt_text_embeddings,
-            dropout=args.dropout,
-            layers=args.layers,
-            heads=args.num_heads,
-            hidden_size=args.hidden_size,
-            device=device
-        )
-        all_encoders['MOR'] = mortality_encoder
-
+        
+        if 'RAD' in all_encoders:
+            all_encoders['MOR'] = all_encoders['RAD']
+        else:
+            if args.shared_modality_encoders:
+                shared_time_encoder = TimeQueryEncoder(
+                    tt_max=args.tt_max,
+                    embed_time=args.embed_time,
+                    device=device
+                )
+            else:
+                shared_time_encoder = None
+            mortality_encoder = FSEncoder(
+                tokenizer=tokenizer_mor,
+                embedding_size=args.embed_dim,
+                pretrained_embedding=args.use_pt_text_embeddings,
+                dropout=args.dropout,
+                layers=args.layers,
+                heads=args.num_heads,
+                hidden_size=args.hidden_size,
+                device=device,
+                shared_time_encoder=shared_time_encoder.to(device),
+                args=args
+            )
+            all_encoders['MOR'] = mortality_encoder
+    
     all_modalities = {}
     if args.shared_modality_encoders:
         all_modalities['Text'] = InputModality(
@@ -471,6 +527,13 @@ def main():
         )
         all_modalities['T5'] = InputModality(
             name='T5',
+            input_channels=args.embed_dim,
+            input_axis=1,
+            num_freq_bands=6,
+            max_freq=1
+        )
+        all_modalities['eicu'] = InputModality(
+            name='eicu',
             input_channels=args.embed_dim,
             input_axis=1,
             num_freq_bands=6,
@@ -643,7 +706,9 @@ def main():
         'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
         'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
         'readmission_mod': args.rad_mod,
-        'mortality_mod': args.mor_mod
+        'mortality_mod': args.mor_mod,
+        'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
+        'los-readmission_mod': args.los_mod+'_'+args.rad_mod
     }
     task_mod_key = f'{args.task}_mod'
     perceiver_mod = []
@@ -705,6 +770,7 @@ def main():
             device,
             modeltype=task_mods_dict[task_mod_key],
             modalities=perceiver_mod,
+            modalities_per_task=modalities_per_task,
             num_classes=1
         ).to(device)
     else:
@@ -859,10 +925,10 @@ def main():
             savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
-        torch.save(model,savedir)
+        # torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
-            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+            # torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
     _ = train(
         model,
         all_train,

@@ -220,7 +220,7 @@ def evaluate_model(args, model, encoder, device, getattentionmap=False, custom_f
                 if custom_forward is not None:
                     out = custom_forward(indict)
                 else:
-                    out = model(indict=indict) if args.lora else model(indict)
+                    out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                 if 'TS_PHENO' in modalities_per_task[int(ii)]:
                     logit = torch.nn.functional.sigmoid(out)
                 else:

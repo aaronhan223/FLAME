@@ -132,8 +132,9 @@ def train(
                 indict={}
                 for i in range(len(modalities[int(ii)])):
                     indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
+                
                 if recon:
-                    out, rec = model(indict=indict, use_recon=True) if args.lora else model(indict, use_recon=True)
+                    out, rec = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
                     stuffs = []
                     for modal in indict:
                         stuffs.append(torch.mean(indict[modal], dim=1))
@@ -141,7 +142,7 @@ def train(
                     loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs)
                 else:
                     # import pdb; pdb.set_trace()
-                    out = model(indict=indict) if args.lora else model(indict)
+                    out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                     if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                         loss=criterion[int(ii)](out, label.float().to(device))
                     else:
@@ -150,6 +151,7 @@ def train(
             
             losses.backward()
             optim.step()
+            # torch.cuda.empty_cache()
             # snapshot_after = check_encoder_updates(encoder, "After optim.step()")
             # compare_encoder_snapshots(snapshot_before, snapshot_after)
 
@@ -200,7 +202,7 @@ def train(
                     indict={}
                     for i in range(len(modalities[ii])):
                         indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
-                    out = model(indict=indict) if args.lora else model(indict)
+                    out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                     if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                         logit = torch.nn.functional.sigmoid(out)
                     else:
@@ -222,10 +224,10 @@ def train(
 
             if accs > bestacc:
                 bestacc = accs
-                torch.save(model, savedir)
+                # torch.save(model, savedir)
                 for ii in range(len(modalities)):
                     task = modalities[int(ii)][0].split('_')[1]
-                    torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+                    # torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
         print('Model saved to ', savedir)
         # import pdb; pdb.set_trace()
         ### Testing function ###
@@ -248,7 +250,9 @@ def train(
                     'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
                     'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
                     'readmission_mod': args.rad_mod,
-                    'mortality_mod': args.mor_mod
+                    'mortality_mod': args.mor_mod,
+                    'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
+                    'los-readmission_mod': args.los_mod+'_'+args.rad_mod
                 }
                 task_mod_key = f'{args.task}_mod'
                 if args.lora:
@@ -317,7 +321,7 @@ def train(
                         for i in range(0, len(modalities[ii])): # for each modality within that task
                             indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
                         
-                        out = model(indict=indict) if args.lora else model(indict)
+                        out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                         if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                             logit = torch.nn.functional.sigmoid(out)
                         else:

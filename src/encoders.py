@@ -145,6 +145,7 @@ class ModalityEncoders(nn.Module):
         orig_d_ts=30,
         orig_reg_d_ts=60,
         orig_d_txt=768,
+        shared_time_encoder=None,
     ):
         super(ModalityEncoders, self).__init__()
         
@@ -201,7 +202,7 @@ class ModalityEncoders(nn.Module):
                 attn_mask_sequences=None, text_emb=None, note_time_list=None, note_time_mask_list=None,
                 labels=None, reg_ts=None, cxr_feats=None, cxr_time=None, cxr_time_mask=None, ecg_feats=None,
                 ecg_time=None, ecg_time_mask=None, modalities=None):
-        
+        # import pdb; pdb.set_trace()
         embeddings = {}
         time_query = self.learn_time_embedding(self.time_query.unsqueeze(0)).to(self.device)
         if any("TS" in s for s in modalities):
@@ -272,7 +273,9 @@ class FSEncoder(nn.Module):
             layers: int,
             heads: int,
             hidden_size: int,
-            device="cpu"
+            device="cpu",
+            shared_time_encoder=None,
+            args=None
     ):
         super(FSEncoder, self).__init__()
         self.tokenizer = tokenizer
@@ -285,17 +288,18 @@ class FSEncoder(nn.Module):
         self.device = device
 
         # embedding
-        if pretrained_embedding:
-            mm = torch.Tensor(self.tokenizer.code_embeddings)
-            assert self.tokenizer.code_vocabs_size == mm.shape[0]
-            self.code_embedding = nn.Sequential(
-                nn.Embedding(self.tokenizer.code_vocabs_size, mm.shape[1]),
-                nn.Linear(mm.shape[1], embedding_size)
-            ).to(self.device)
-            self.code_embedding[0].weight.data.copy_(mm)
-            self.code_embedding[0].weight.requires_grad = False
-        else:
-            self.code_embedding = nn.Embedding(self.tokenizer.code_vocabs_size, embedding_size, padding_idx=0).to(self.device)
+        # if pretrained_embedding:
+        #     mm = torch.Tensor(self.tokenizer.code_embeddings)
+        #     assert self.tokenizer.code_vocabs_size == mm.shape[0]
+        #     self.code_embedding = nn.Sequential(
+        #         nn.Embedding(self.tokenizer.code_vocabs_size, mm.shape[1]),
+        #         nn.Linear(mm.shape[1], embedding_size)
+        #     ).to(self.device)
+        #     self.code_embedding[0].weight.data.copy_(mm)
+        #     self.code_embedding[0].weight.requires_grad = False
+        # else:
+        #     self.code_embedding = nn.Embedding(self.tokenizer.code_vocabs_size, embedding_size, padding_idx=0).to(self.device)
+        self.code_embedding = nn.Embedding(self.tokenizer.code_vocabs_size, embedding_size, padding_idx=0).to(self.device)
         self.type_embedding = nn.Embedding(self.tokenizer.type_vocabs_size, embedding_size, padding_idx=0).to(self.device)
         self.timestamp_embedding = RelTemporalEncoding(embedding_size).to(self.device)
         self.age_embedding = nn.Embedding(self.tokenizer.age_vocabs_size, embedding_size, padding_idx=0).to(self.device)
@@ -320,6 +324,7 @@ class FSEncoder(nn.Module):
     def forward(
             self, codes, types, timestamps, ages, genders, ethnicities, modalities
     ):
+        # import pdb; pdb.set_trace()
         codes = codes.to(self.device)
         types = types.to(self.device)
         timestamps = timestamps.to(self.device)
