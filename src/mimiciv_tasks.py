@@ -174,6 +174,7 @@ def parse_args():
     parser.add_argument("--top_k", nargs='*', type=int, help="the number of experts finally combined together for joint and permod routers")
     parser.add_argument("--router_type", default='joint', type=str, help="all router types: joint, permod, disjoint")
     parser.add_argument("--gating_function", nargs='*', type=str, help="all gating functions: softmax, laplace, gaussian, enter at least one")
+    parser.add_argument("--modality_drop_rate", default=0.0, type=float, help="Probability of dropping each modality from indict before model forward pass (keeps at least one). 0.0 = no dropping.")
     args = parser.parse_args()
     return args
 
@@ -708,7 +709,11 @@ def main():
         'readmission_mod': args.rad_mod,
         'mortality_mod': args.mor_mod,
         'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
-        'los-readmission_mod': args.los_mod+'_'+args.rad_mod
+        'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
+        'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
+        'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
+        'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
+        'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod
     }
     task_mod_key = f'{args.task}_mod'
     perceiver_mod = []

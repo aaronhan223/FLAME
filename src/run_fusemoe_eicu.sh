@@ -52,8 +52,8 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --pheno_mod 'TS-Text-CXR'\
                 --rad_mod 'T1-T2-T3-T4-T5'\
                 --mor_mod 'T1-T2-T3-T4-T5'\
-                --mimic_path '/export/io79/data/schaud35/'\
-                --eicu_path '/export/io79/data/schaud35/eicu/processed/'\
+                --mimic_path '/export/io79/data/schaud35/datasets/'\
+                --eicu_path '/export/io79/data/schaud35/datasets/eicu/processed/'\
                 --num_heads 8\
                 --embed_time 64\
                 --tt_max 1\

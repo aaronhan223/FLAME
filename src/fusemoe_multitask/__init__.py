@@ -6,3 +6,9 @@ from .moe import (
     TemporalExpertMLP,
     SparseDispatcher3D,
 )
+from .fleximoe import (
+    FlexiMoEConfig,
+    FlexiSeqMoE,
+    ModalityProxy,
+    CrossModalImputer,
+)

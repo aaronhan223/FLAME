@@ -475,20 +475,24 @@ class MULTCrossModel(nn.Module):
         balance_loss = None
         
         if self.cross_method in ["self_cross", "moe", "hme"]:
-            if modalities == "TS_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_txt, proj_x_ts], ['text', 'ts'])
-            elif modalities == "CXR_TS":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_cxr, proj_x_ts], ['cxr', 'ts'])
-            elif modalities == "CXR_TS_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_ts, proj_x_cxr, proj_x_txt], ['ts', 'cxr', 'text'])
-            elif modalities == "CXR_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_cxr, proj_x_txt], ['cxr', 'text'])
-            elif modalities == "CXR_ECG_TS_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_ts, proj_x_cxr, proj_x_txt, proj_x_ecg], ['ts', 'cxr', 'txt', 'ecg'])
-            elif modalities == "T1_T2_T3_T4_T5":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_t1, proj_x_t2, proj_x_t3, proj_x_t4, proj_x_t5], ['t1', 't2', 't3', 't4', 't5'])
-            elif modalities == "eicu":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_eicu], ['eicu'])
+            # Maps each modality token → (local variable name, short name for the model)
+            _proj_var = {
+                'TS':   'proj_x_ts',   'Text': 'proj_x_txt',  'CXR':  'proj_x_cxr',
+                'ECG':  'proj_x_ecg',  'T1':   'proj_x_t1',   'T2':   'proj_x_t2',
+                'T3':   'proj_x_t3',   'T4':   'proj_x_t4',   'T5':   'proj_x_t5',
+                'eicu': 'proj_x_eicu',
+            }
+            _short_name = {
+                'TS':   'ts',    'Text': 'text',  'CXR':  'cxr',
+                'ECG':  'ecg',   'T1':   't1',    'T2':   't2',
+                'T3':   't3',    'T4':   't4',    'T5':   't5',
+                'eicu': 'eicu',
+            }
+            _lv = locals()
+            tokens = modalities.split('_')
+            proj_list = [_lv[_proj_var[t]] for t in tokens]
+            name_list = [_short_name[t] for t in tokens]
+            hiddens, balance_loss = self.trans_self_cross_ts_txt(proj_list, name_list)
             if hiddens is None:
                 return None
             # h_txt_with_ts, h_ts_with_txt=hiddens

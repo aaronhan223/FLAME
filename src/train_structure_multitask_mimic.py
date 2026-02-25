@@ -3,10 +3,32 @@ from src.eval_scripts.performance import metrics_multilabel
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score
 from tqdm import tqdm
 import numpy as np
+import random
 import pdb
 from peft import LoraConfig, get_peft_model, TaskType
 import os
 from src.utils import *
+
+
+def drop_modalities(indict, drop_rate):
+    """Randomly drop modalities from indict. Always keeps at least one modality.
+
+    Args:
+        indict: dict mapping modality names to their embedding tensors.
+        drop_rate: probability of dropping each modality (0.0 = no dropping).
+
+    Returns:
+        A (possibly reduced) copy of indict with some modalities removed.
+    """
+    if drop_rate <= 0 or len(indict) <= 1:
+        return indict
+    keys = list(indict.keys())
+    keep = [k for k in keys if random.random() >= drop_rate]
+    # Ensure at least one modality survives
+    if len(keep) == 0:
+        keep = [random.choice(keys)]
+    return {k: indict[k] for k in keep}
+
 
 def train(
     model,
@@ -132,7 +154,8 @@ def train(
                 indict={}
                 for i in range(len(modalities[int(ii)])):
                     indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
-                
+                indict = drop_modalities(indict, args.modality_drop_rate)
+
                 if recon:
                     out, rec = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
                     stuffs = []
@@ -202,6 +225,7 @@ def train(
                     indict={}
                     for i in range(len(modalities[ii])):
                         indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                    indict = drop_modalities(indict, args.modality_drop_rate)
                     out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                     if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                         logit = torch.nn.functional.sigmoid(out)
@@ -252,7 +276,11 @@ def train(
                     'readmission_mod': args.rad_mod,
                     'mortality_mod': args.mor_mod,
                     'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
-                    'los-readmission_mod': args.los_mod+'_'+args.rad_mod
+                    'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
+                    'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
+                    'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
+                    'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
+                    'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod
                 }
                 task_mod_key = f'{args.task}_mod'
                 if args.lora:
@@ -320,7 +348,8 @@ def train(
                         indict={}
                         for i in range(0, len(modalities[ii])): # for each modality within that task
                             indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
-                        
+                        indict = drop_modalities(indict, args.modality_drop_rate)
+
                         out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                         if 'TS_PHENO' in modalities[int(ii)] or 'Text_PHENO' in modalities[int(ii)] or 'CXR_PHENO' in modalities[int(ii)]:
                             logit = torch.nn.functional.sigmoid(out)
