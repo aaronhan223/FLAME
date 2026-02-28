@@ -19,7 +19,7 @@ def findmodalityandindex(ms, mn):
     raise ValueError(f"modality {mn} not found in defined modalities")
 
 class MULTCrossModel(nn.Module):
-    def __init__(self,args,device,modalities,num_classes=None,latent_dim=512,modeltype=None,orig_d_ts=None,orig_reg_d_ts=None,orig_d_txt=None,ts_seq_num=None,text_seq_num=None, Biobert=None):
+    def __init__(self,args,device,modalities,modalities_per_task,num_classes=None,latent_dim=512,modeltype=None,orig_d_ts=None,orig_reg_d_ts=None,orig_d_txt=None,ts_seq_num=None,text_seq_num=None, Biobert=None):
         """
         Construct a MulT Cross model.
         """
@@ -44,8 +44,10 @@ class MULTCrossModel(nn.Module):
         self.mixup_level=args.mixup_level
         self.task=args.task
         self.tt_max=args.tt_max
+        self.tt_max_eicu=args.tt_max_eicu
         self.cross_method=args.cross_method
         self.modalities = modalities
+        self.modalities_per_task = modalities_per_task
         self.num_modalities = len(self.modalities)
         self.use_pt_text_embeddings = args.use_pt_text_embeddings
         self.token_type_embeddings = nn.Embedding(self.num_modalities, args.embed_dim)
@@ -63,6 +65,7 @@ class MULTCrossModel(nn.Module):
         self.d_t3 = args.embed_dim
         self.d_t4 = args.embed_dim
         self.d_t5 = args.embed_dim
+        self.d_eicu = args.embed_dim
 
         # if self.irregular_learn_emb_ts or self.irregular_learn_emb_text:
         #     self.time_query=torch.linspace(0, 1., self.tt_max)
@@ -127,29 +130,36 @@ class MULTCrossModel(nn.Module):
         # if self.modeltype=="TS_Text":
         if self.cross_method in ["self_cross", "moe", "hme"]:
             self.trans_self_cross_ts_txt = self.get_cross_network(args, layers=args.cross_layers)
-            dim = 0
-            if "TS" in self.modeltype:
-                dim += self.d_ts
-            if "Text" in self.modeltype:
-                dim += self.d_txt
-            if "CXR" in self.modeltype:
-                dim += self.d_cxr
-            if "ECG" in self.modeltype:
-                dim += self.d_ecg   
-            if "T1" in self.modeltype:
-                dim += self.d_t1
-            if "T2" in self.modeltype:
-                dim += self.d_t2
-            if "T3" in self.modeltype:
-                dim += self.d_t3
-            if "T4" in self.modeltype:
-                dim += self.d_t4
-            if "T5" in self.modeltype:
-                dim += self.d_t5         
-
-            self.proj1 = nn.Linear(dim, dim)
-            self.proj2 = nn.Linear(dim, dim)
-            self.out_layer = nn.Linear(dim, output_dim)
+            self.proj1 = nn.ModuleDict()
+            self.proj2 = nn.ModuleDict()
+            self.out_layer = nn.ModuleDict()
+            for t in self.modalities_per_task:
+                dim = 0
+                task = t[0].split('_')[1]   
+                if f"TS_{task}" in t:
+                    dim += self.d_ts
+                if f"Text_{task}" in t:
+                    dim += self.d_txt
+                if f"CXR_{task}" in t:
+                    dim += self.d_cxr
+                if f"ECG_{task}" in t:
+                    dim += self.d_ecg   
+                if f"T1_{task}" in t:
+                    dim += self.d_t1
+                if f"T2_{task}" in t:
+                    dim += self.d_t2
+                if f"T3_{task}" in t:
+                    dim += self.d_t3
+                if f"T4_{task}" in t:
+                    dim += self.d_t4
+                if f"T5_{task}" in t:
+                    dim += self.d_t5     
+                if f"eicu_{task}" in t:
+                    dim += self.d_eicu    
+            
+                self.proj1[task] = nn.Linear(dim, dim)
+                self.proj2[task] = nn.Linear(dim, dim)
+                self.out_layer[task] = nn.Linear(dim, output_dim)
         else:
             # baseline fusion methods
             self.d_txt = args.embed_dim
@@ -243,6 +253,7 @@ class MULTCrossModel(nn.Module):
                                         embed_dropout=self.dropout,
                                         attn_mask=self.attn_mask,
                                         q_seq_len_1=q_seq_len,
+                                        modalities=self.modalities,
                                         num_modalities=self.num_modalities)
 
     def learn_time_embedding(self, tt):
@@ -384,7 +395,7 @@ class MULTCrossModel(nn.Module):
         #         proj_x_ecg[:, non_missing, :] += self.token_type_embeddings(torch.ones((self.args.tt_max, len(non_missing)), dtype=torch.long, device=x_ts.device))
         #         proj_x_ecg[:, missing_indices, :] = torch.zeros((self.args.tt_max, len(missing_indices), self.args.embed_dim), dtype=torch.float16, device=x_ts.device)
         #     mod_count += 1
-    def forward(self, multi_modality_data: Dict[str, Tensor], mask=None, use_recon=False, get_latent=False, get_pre_logits=False, latents=None, source_mode=None, get_catted=False, unimodal=False, null_pvi=False, labels=None):
+    def forward(self, multi_modality_data: Dict[str, Tensor], task=None, mask=None, use_recon=False, get_latent=False, get_pre_logits=False, latents=None, source_mode=None, get_catted=False, unimodal=False, null_pvi=False, labels=None):
         """
         :param data: a dictionary where keys are modality names and Tensor contain a batch
         of modality input data.
@@ -451,25 +462,37 @@ class MULTCrossModel(nn.Module):
                     modalities.append('T5')
                 else:
                     modalities = ['T5']
+            if 'eicu' in m:
+                proj_x_eicu = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('eicu')
+                else:
+                    modalities = ['eicu']
 
         modalities = sorted(modalities)
         modalities = '_'.join(modalities)
         
         balance_loss = None
-        # import pdb; pdb.set_trace()
+        
         if self.cross_method in ["self_cross", "moe", "hme"]:
-            if modalities == "TS_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_txt, proj_x_ts], ['txt', 'ts'])
-            elif modalities == "CXR_TS":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_cxr, proj_x_ts], ['cxr', 'ts'])
-            elif modalities == "CXR_TS_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_ts, proj_x_cxr, proj_x_txt], ['ts', 'cxr', 'txt'])
-            elif modalities == "CXR_ECG_TS_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_ts, proj_x_cxr, proj_x_txt, proj_x_ecg], ['ts', 'cxr', 'txt', 'ecg'])
-            elif modalities == "T1_T2_T3_T4_T5":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_t1, proj_x_t2, proj_x_t3, proj_x_t4, proj_x_t5], ['t1', 't2', 't3', 't4', 't5'])
-            elif modalities == "CXR_Text":
-                hiddens, balance_loss = self.trans_self_cross_ts_txt([proj_x_cxr, proj_x_txt], ['cxr', 'text'])
+            # Maps each modality token → (local variable name, short name for the model)
+            _proj_var = {
+                'TS':   'proj_x_ts',   'Text': 'proj_x_txt',  'CXR':  'proj_x_cxr',
+                'ECG':  'proj_x_ecg',  'T1':   'proj_x_t1',   'T2':   'proj_x_t2',
+                'T3':   'proj_x_t3',   'T4':   'proj_x_t4',   'T5':   'proj_x_t5',
+                'eicu': 'proj_x_eicu',
+            }
+            _short_name = {
+                'TS':   'ts',    'Text': 'text',  'CXR':  'cxr',
+                'ECG':  'ecg',   'T1':   't1',    'T2':   't2',
+                'T3':   't3',    'T4':   't4',    'T5':   't5',
+                'eicu': 'eicu',
+            }
+            _lv = locals()
+            tokens = modalities.split('_')
+            proj_list = [_lv[_proj_var[t]] for t in tokens]
+            name_list = [_short_name[t] for t in tokens]
+            hiddens, balance_loss = self.trans_self_cross_ts_txt(proj_list, name_list)
             if hiddens is None:
                 return None
             # h_txt_with_ts, h_ts_with_txt=hiddens
@@ -500,7 +523,18 @@ class MULTCrossModel(nn.Module):
                     last_hs=self.outer_fusion(proj_x_txt[-1],proj_x_ts[-1])
                 else:
                     last_hs = torch.cat([proj_x_txt[-1],proj_x_ts[-1]], dim=1)
-        last_hs_proj = self.proj2(F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training))
+        
+        # last_hs_proj = self.proj2(F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training))
+        
+        if isinstance(self.proj1, nn.ModuleDict):
+            last_hs_proj = F.dropout(F.relu(self.proj1[task](last_hs)), p=self.dropout, training=self.training)
+        else:
+            last_hs_proj = F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training)
+        if isinstance(self.proj2, nn.ModuleDict):
+            last_hs_proj = self.proj2[task](last_hs_proj)
+        else:
+            last_hs_proj = self.proj2(last_hs_proj)
+        
         last_hs_proj += last_hs
         if get_pre_logits or get_latent or get_catted:
             return last_hs_proj

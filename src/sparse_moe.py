@@ -29,6 +29,7 @@ class MoEConfig:
         router_type,
         gating='softmax',
         num_modalities=3,
+        modalities=None,
         vocab_size=100,
         num_tasks=2, 
         top_k=4,
@@ -62,7 +63,7 @@ class MoEConfig:
         self.hidden_size = hidden_dim
         self.type_vocab_size = type_vocab_size
         self.modality_type_vocab_size = modality_type_vocab_size
-
+        self.modalities = modalities
         # MoE
         self.num_experts = num_experts
         self.num_tasks = num_tasks
@@ -258,6 +259,7 @@ class MoE(nn.Module):
         self.router_type = config.router_type
         self.num_modalities = config.num_modalities
         self.gating = config.gating
+        self.modalities = config.modalities
 
         # instantiate experts
         if self.router_type == 'disjoint':
@@ -437,6 +439,7 @@ class MoE(nn.Module):
         training loss of the model.  The backpropagation of this loss
         encourages all experts to be approximately equally used across a batch.
         """
+        # import pdb; pdb.set_trace()
         gates, load = self.noisy_top_k_gating(x, train, modalities=modalities)
         # calculate importance loss
         if isinstance(gates, list):
