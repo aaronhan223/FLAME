@@ -1,7 +1,7 @@
 export CUDA_VISIBLE_DEVICES=7
 
 python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
-                --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 \
+                --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
                 --eval_batch_size 8 --seed 42 \
                 --gradient_accumulation_steps 16  --num_update_bert_epochs 2 --bertcount 0 \
                 --ts_learning_rate 0.0004 --txt_learning_rate 0.00002 \
@@ -15,6 +15,9 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --pheno_mod 'TS-Text-CXR'\
                 --rad_mod 'T1-T2-T3-T4-T5'\
                 --mor_mod 'T1-T2-T3-T4-T5'\
+                --birads_mod 'cc-mlo-2dcc-2dmlo'\
+                --risk_mod 'cc-mlo-2dcc-2dmlo'\
+                --density_mod 'cc-mlo-2dcc-2dmlo'\
                 --mimic_path '/export/io79/data/schaud35/datasets/'\
                 --eicu_path '/export/io79/data/schaud35/datasets/eicu/processed/'\
                 --embed_path '/export/io79/data/schaud35/datasets/EMBED/'\
@@ -36,8 +39,8 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --shared_modality_encoders \
                 --modality_drop_rate 0.0 \
                 --multitask_moe \
-                --use_wandb \
-                --wandb_project 'clinical-highmmt' 
+                # --use_wandb \
+                # --wandb_project 'clinical-highmmt' 
                 # --linear_probe \
                 # --base_task_mods 'TS-Text-CXR' \
                 # --base_task 'los' \

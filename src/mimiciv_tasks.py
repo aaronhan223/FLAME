@@ -581,10 +581,10 @@ def main():
             savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
-        # torch.save(model,savedir)
+        torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
-            # torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
     
     _ = train(
         model,

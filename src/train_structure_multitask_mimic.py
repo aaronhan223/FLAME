@@ -383,10 +383,10 @@ def train(
 
             if accs > bestacc:
                 bestacc = accs
-                # torch.save(model, savedir)
+                torch.save(model, savedir)
                 for ii in range(len(modalities)):
                     task = modalities[int(ii)][0].split('_')[1]
-                    # torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+                    torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
                 val_log['val/best_score_sum'] = float(bestacc)
         print('Model saved to ', savedir)
         if use_wandb:
