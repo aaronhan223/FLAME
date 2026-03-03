@@ -25,7 +25,7 @@ def data_prepare(args, task, tokenizer, modeltype, data=None):
     train_dataset = TSNote_Irg(args, 'train', task, tokenizer, modeltype, data=data)
     val_dataset = TSNote_Irg(args, 'val', task, tokenizer, modeltype, data=data)
     test_dataset = TSNote_Irg(args, 'test', task, tokenizer, modeltype, data=data)
-
+    
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_bs_mimic, collate_fn=TextTSIrgcollate_fn)
 
@@ -313,7 +313,6 @@ def load_data(file_path, mode, debug=False, text=False, task='ihm'):
     return data
 
 def TextTSIrgcollate_fn(batch):
-
     batch = list(filter(lambda x: x is not None, batch))
     if 'ts' in batch[0].keys():
         batch = list(filter(lambda x: len(x['ts']) <1000, batch))

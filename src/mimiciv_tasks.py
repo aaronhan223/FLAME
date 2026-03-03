@@ -18,8 +18,9 @@ from transformers import (AutoTokenizer,
                          )
 from src.crossattnperceiver import MultiModalityPerceiver, InputModality, PerceiverWrapper, CrossAttnTransformer
 from src.fusemoe import *
+from src.mimiciv_task_setup import setup_tasks_and_modalities
 from src.train_structure_multitask_mimic import train
-from src.encoders import ModalityEncoders, FSEncoder
+from src.encoders import ModalityEncoders, FSEncoder, EMBEDEncoder
 from src.shared_encoders import TimeQueryEncoder
 # from src.shared_encoders import ModalityEncoders, FSEncoder, TimeQueryEncoder
 from src.utils import create_directory, dump_pickle
@@ -29,6 +30,7 @@ from accelerate import Accelerator
 torch.multiprocessing.set_sharing_strategy('file_system')
 from src.datasets.mimic.get_data_mimic_iv import data_prepare as prepare_mimic
 from src.get_data_eicu import data_prepare as prepare_eicu
+from src.datasets.embed.get_data_embed import data_prepare as prepare_embed
 from peft import get_peft_model, LoraConfig, TaskType
 from transformers import set_seed
 torch.backends.cudnn.deterministic = True
@@ -45,11 +47,17 @@ def parse_args():
     parser.add_argument(
         "--eicu_path", type=str, default="/cis/home/xhan56/code/clinical-highmmt/src/datasets/eicu/processed", help="A path to dataset folder"
     )
+    parser.add_argument(
+        "--embed_path", type=str, default='/export/io79/data/schaud35/datasets/EMBED', help="Path to pre-extracted embeddings for each modality and task in EMBED, required if --use_pt_text_embeddings is set."
+    )
     parser.add_argument("--ihm_mod", type=str, default='', help="Modality compoenents for IHM task.")
     parser.add_argument("--los_mod", type=str, default='', help="Modality compoenents for LOS task.")
     parser.add_argument("--pheno_mod", type=str, default='', help="Modality compoenents for PHENO task.")
     parser.add_argument("--rad_mod", type=str, default='', help="Modality compoenents for readmission task.")
     parser.add_argument("--mor_mod", type=str, default='', help="Modality compoenents for mortality task.")
+    parser.add_argument("--birads_mod", type=str, default='', help="Modality compoenents for birads task.")
+    parser.add_argument("--risk_mod", type=str, default='', help="Modality compoenents for cancer risk prediction task.")
+    parser.add_argument("--density_mod", type=str, default='', help="Modality compoenents for tissue density prediction task.")
 
     parser.add_argument("--tensorboard_dir", type=str, default=None, help="Where to store the final model.")
 
@@ -74,6 +82,12 @@ def parse_args():
         type=int,
         default=8,
         help="Batch size for the eicu training dataloader.",
+    )
+    parser.add_argument(
+        "--train_bs_embed",
+        type=int,
+        default=8,
+        help="Batch size for the embed training dataloader.",
     )
     parser.add_argument(
         "--eval_batch_size",
@@ -170,11 +184,15 @@ def parse_args():
     parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
     parser.add_argument('--linear_probe', action='store_true')
     parser.add_argument('--shared_modality_encoders', action='store_true', help='Use shared modality encoders across tasks')
+    parser.add_argument('--use_wandb', action='store_true', help='Enable Weights & Biases logging for train/val/test metrics.')
+    parser.add_argument('--wandb_project', type=str, default='clinical-highmmt', help='Weights & Biases project name.')
+    parser.add_argument('--wandb_run_name', type=str, default=None, help='Optional Weights & Biases run name.')
     parser.add_argument("--num_of_experts", nargs='*', type=int, help="number of MLPs in MoE, for HME need to specify each level")
     parser.add_argument("--top_k", nargs='*', type=int, help="the number of experts finally combined together for joint and permod routers")
     parser.add_argument("--router_type", default='joint', type=str, help="all router types: joint, permod, disjoint")
     parser.add_argument("--gating_function", nargs='*', type=str, help="all gating functions: softmax, laplace, gaussian, enter at least one")
     parser.add_argument("--modality_drop_rate", default=0.0, type=float, help="Probability of dropping each modality from indict before model forward pass (keeps at least one). 0.0 = no dropping.")
+    parser.add_argument("--multitask_moe", action='store_true', help="Whether to use the multitask MoE implementation in src/fusemoe_multitask.py instead of the original MoE implementation in src/sparse_moe.py. The multitask MoE allows for different gating and expert configurations per task, while the original MoE uses the same gating and expert configuration for all tasks.")
     args = parser.parse_args()
     return args
 
@@ -238,466 +256,6 @@ def main():
     accelerator = Accelerator(mixed_precision=args.mixed_precision, cpu=args.cpu)
     device = accelerator.device
 
-    modalities = set()
-    if len(args.ihm_mod) != 0 and 'ihm' in args.task:
-        for e in args.ihm_mod.split("-"):
-            modalities.add(e)
-    if len(args.los_mod) != 0 and 'los' in args.task:
-        for e in args.los_mod.split("-"):
-            modalities.add(e)
-    if len(args.pheno_mod) != 0 and 'pheno' in args.task:
-        for e in args.pheno_mod.split("-"):
-            modalities.add(e)
-    modeltype = ''
-    modals = [*modalities]
-    modals.sort()
-    for m in modals:
-        modeltype = modeltype + m + '_'
-    modeltype = modeltype[:-1]
-
-    if len(args.rad_mod) != 0 and 'readmission' in args.task:
-        for e in args.rad_mod.split("-"):
-            modalities.add(e)
-    if len(args.mor_mod) != 0 and 'mortality' in args.task:
-        for e in args.mor_mod.split("-"):
-            modalities.add(e)
-    modalities = [*modalities]
-
-    if 'Text' in modeltype:
-        BioBert, BioBertConfig, tokenizer = loadBert(args, device)
-    else:
-        tokenizer = None
-        BioBert = None
-
-    tasks = args.task.split("-")
-    all_train = []
-    all_valid = []
-    all_test = []
-    criterion = []
-    modalities_per_task = []
-    train_weights = []
-    all_encoders = {}
-    logits = torch.nn.ModuleList()
-
-    if 'ihm' in tasks:
-        train_ihm, valid_ihm, test_ihm = prepare_mimic(args=args, task='ihm', tokenizer=tokenizer, modeltype=modeltype)
-        all_train.append(train_ihm)
-        all_valid.append(valid_ihm)
-        all_test.append(test_ihm)
-        criterion.append(torch.nn.CrossEntropyLoss())
-        train_weights.append(1.0)
-        ihm_mods = list(map(lambda s: s + '_IHM', args.ihm_mod.split("-")))
-        assert len(ihm_mods) > 1, "At least two modalities per task!"
-        modalities_per_task.append(ihm_mods)
-        if args.fusion_model in ['fusemoe']:
-            logit_dim = len(ihm_mods) * args.embed_dim
-        else:
-            logit_dim = len(ihm_mods) * (len(ihm_mods) - 1) * args.perceiver_dim
-        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
-        if args.shared_modality_encoders:
-            shared_time_encoder = TimeQueryEncoder(
-                tt_max=args.tt_max,
-                embed_time=args.embed_time,
-                device=device
-            )
-        else:
-            shared_time_encoder = None
-        ihm_encoder = ModalityEncoders(
-            args, 
-            device, 
-            modalities, 
-            args.tt_max, 
-            args.num_of_notes, 
-            BioBert,
-            shared_time_encoder=shared_time_encoder.to(device)
-        )
-        all_encoders['IHM'] = ihm_encoder
-    
-    if 'los' in tasks:
-        train_los, valid_los, test_los = prepare_mimic(args=args, task='los', tokenizer=tokenizer, modeltype=modeltype)
-        all_train.append(train_los)
-        all_valid.append(valid_los)
-        all_test.append(test_los)
-        criterion.append(torch.nn.CrossEntropyLoss())
-        train_weights.append(1.0)
-        los_mods = list(map(lambda s: s + '_LOS', args.los_mod.split("-")))
-        assert len(los_mods) > 1, "At least two modalities per task!"
-        modalities_per_task.append(los_mods)
-        if args.fusion_model in ['fusemoe']:
-            logit_dim = len(los_mods) * args.embed_dim
-        else:
-            logit_dim = len(los_mods) * (len(los_mods) - 1) * args.perceiver_dim
-        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
-        
-        if 'IHM' in all_encoders and args.shared_modality_encoders:
-            all_encoders['LOS'] = all_encoders['IHM']
-        else:
-            if args.shared_modality_encoders:
-                shared_time_encoder = TimeQueryEncoder(
-                tt_max=args.tt_max,
-                embed_time=args.embed_time,
-                device=device
-            )
-            else:
-                shared_time_encoder = None
-            los_encoder = ModalityEncoders(
-                args, 
-                device, 
-                modalities, 
-                args.tt_max, 
-                args.num_of_notes, 
-                BioBert,
-                shared_time_encoder=shared_time_encoder.to(device)
-            )
-            all_encoders['LOS'] = los_encoder
-    
-    if 'pheno' in tasks:
-        train_pheno, valid_pheno, test_pheno = prepare_mimic(args=args, task='pheno', tokenizer=tokenizer, modeltype=modeltype)
-        all_train.append(train_pheno)
-        all_valid.append(valid_pheno)
-        all_test.append(test_pheno)
-        criterion.append(torch.nn.BCEWithLogitsLoss())
-        train_weights.append(1.0)
-        pheno_mods = list(map(lambda s: s + '_PHENO', args.pheno_mod.split("-")))
-        assert len(pheno_mods) > 1, "At least two modalities per task!"
-        modalities_per_task.append(pheno_mods)
-        if args.fusion_model in ['fusemoe']:
-            logit_dim = len(pheno_mods) * args.embed_dim
-        else:
-            logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
-        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 25)))
-        
-        if 'IHM' in all_encoders:
-            all_encoders['PHENO'] = all_encoders['IHM']
-        elif 'LOS' in all_encoders:
-            all_encoders['PHENO'] = all_encoders['LOS']
-        else:
-            if args.shared_modality_encoders:
-                    shared_time_encoder = TimeQueryEncoder(
-                    tt_max=args.tt_max,
-                    embed_time=args.embed_time,
-                    device=device
-                )
-            else:
-                shared_time_encoder = None
-                
-            pheno_encoder = ModalityEncoders(
-                args, 
-                device, 
-                modalities, 
-                args.tt_max, 
-                args.num_of_notes, 
-                BioBert,
-                shared_time_encoder=shared_time_encoder.to(device)
-            )
-            all_encoders['PHENO'] = pheno_encoder
-    
-    if 'readmission' in tasks:
-        train_rad, valid_rad, test_rad, tokenizer_rad = prepare_eicu(args=args)
-        all_train.append(train_rad)
-        all_valid.append(valid_rad)
-        all_test.append(test_rad)
-        criterion.append(torch.nn.CrossEntropyLoss())
-        train_weights.append(1.0)
-        rad_mods = list(map(lambda s: s + '_RAD', args.rad_mod.split("-")))
-        modalities_per_task.append(rad_mods)
-        if args.fusion_model in ['fusemoe']:
-            logit_dim = len(rad_mods) * args.embed_dim
-        else:
-            logit_dim = len(rad_mods) * (len(rad_mods) - 1) * args.perceiver_dim
-        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
-        if args.shared_modality_encoders:
-            shared_time_encoder = TimeQueryEncoder(
-                tt_max=args.tt_max,
-                embed_time=args.embed_time,
-                device=device
-            )
-        else:
-            shared_time_encoder = None
-        readmission_encoder = FSEncoder(
-            tokenizer=tokenizer_rad,
-            embedding_size=args.embed_dim,
-            pretrained_embedding=args.use_pt_text_embeddings,
-            dropout=args.dropout,
-            layers=args.layers,
-            heads=args.num_heads,
-            hidden_size=args.hidden_size,
-            device=device,
-            shared_time_encoder=shared_time_encoder.to(device),
-            args=args
-        )
-        all_encoders['RAD'] = readmission_encoder
-    
-    if 'mortality' in tasks:
-        train_mor, valid_mor, test_mor, tokenizer_mor = prepare_eicu(args=args)
-        all_train.append(train_mor)
-        all_valid.append(valid_mor)
-        all_test.append(test_mor)
-        criterion.append(torch.nn.CrossEntropyLoss())
-        train_weights.append(1.0)
-        mor_mods = list(map(lambda s: s + '_MOR', args.mor_mod.split("-")))
-        modalities_per_task.append(mor_mods)
-        if args.fusion_model in ['fusemoe']:
-            logit_dim = len(mor_mods) * args.embed_dim
-        else:
-            logit_dim = len(mor_mods) * (len(mor_mods) - 1) * args.perceiver_dim
-        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
-        
-        if 'RAD' in all_encoders:
-            all_encoders['MOR'] = all_encoders['RAD']
-        else:
-            if args.shared_modality_encoders:
-                shared_time_encoder = TimeQueryEncoder(
-                    tt_max=args.tt_max,
-                    embed_time=args.embed_time,
-                    device=device
-                )
-            else:
-                shared_time_encoder = None
-            mortality_encoder = FSEncoder(
-                tokenizer=tokenizer_mor,
-                embedding_size=args.embed_dim,
-                pretrained_embedding=args.use_pt_text_embeddings,
-                dropout=args.dropout,
-                layers=args.layers,
-                heads=args.num_heads,
-                hidden_size=args.hidden_size,
-                device=device,
-                shared_time_encoder=shared_time_encoder.to(device),
-                args=args
-            )
-            all_encoders['MOR'] = mortality_encoder
-    
-    all_modalities = {}
-    if args.shared_modality_encoders:
-        all_modalities['Text'] = InputModality(
-            name='Text',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['TS'] = InputModality(
-            name='TS',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )   
-        all_modalities['CXR'] = InputModality(
-            name='CXR',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['ECG'] = InputModality(
-            name='ECG',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T1'] = InputModality(
-            name='T1',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T2'] = InputModality(
-            name='T2',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T3'] = InputModality(
-            name='T3',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T4'] = InputModality(
-            name='T4',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T5'] = InputModality(
-            name='T5',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['eicu'] = InputModality(
-            name='eicu',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-    else:
-        all_modalities['Text_IHM'] = InputModality(
-            name='Text_IHM',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['TS_IHM'] = InputModality(
-            name='TS_IHM',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['CXR_IHM'] = InputModality(
-            name='CXR_IHM',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1.
-        )
-        all_modalities['ECG_IHM'] = InputModality(
-            name='ECG_IHM',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['Text_LOS'] = InputModality(
-            name='Text_LOS',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['TS_LOS'] = InputModality(
-            name='TS_LOS',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['CXR_LOS'] = InputModality(
-            name='CXR_LOS',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1.
-        )
-        all_modalities['ECG_LOS'] = InputModality(
-            name='ECG_LOS',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1.
-        )
-        all_modalities['Text_PHENO'] = InputModality(
-            name='Text_PHENO',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['TS_PHENO'] = InputModality(
-            name='TS_PHENO',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['CXR_PHENO'] = InputModality(
-            name='CXR_PHENO',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1.
-        )
-        all_modalities['ECG_PHENO'] = InputModality(
-            name='ECG_PHENO',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1.
-        )
-        all_modalities['T1_MOR'] = InputModality(
-            name='T1_MOR',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T2_MOR'] = InputModality(
-            name='T2_MOR',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T3_MOR'] = InputModality(
-            name='T3_MOR',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T4_MOR'] = InputModality(
-            name='T4_MOR',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T5_MOR'] = InputModality(
-            name='T5_MOR',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T1_RAD'] = InputModality(
-            name='T1_RAD',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T2_RAD'] = InputModality(
-            name='T2_RAD',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T3_RAD'] = InputModality(
-            name='T3_RAD',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T4_RAD'] = InputModality(
-            name='T4_RAD',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-        all_modalities['T5_RAD'] = InputModality(
-            name='T5_RAD',
-            input_channels=args.embed_dim,
-            input_axis=1,
-            num_freq_bands=6,
-            max_freq=1
-        )
-    # TODO: each feature a modality? clustering feature?
-    # TODO: should we keep feature specific encoders?
-    # import pdb; pdb.set_trace()
     task_mods_dict = {
         'ihm_mod': args.ihm_mod,
         'los_mod': args.los_mod,
@@ -713,9 +271,102 @@ def main():
         'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
         'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
         'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
-        'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod
+        'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
+        'birads_mod': args.birads_mod,
+        'risk_mod': args.risk_mod,
+        'density_mod': args.density_mod,
+        'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
+        'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
+        'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
+        'birads-density_mod': args.birads_mod+'_'+args.density_mod,
+        'risk-density_mod': args.risk_mod+'_'+args.density_mod,
+        'ihm-los-pheno-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
+        'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
     }
     task_mod_key = f'{args.task}_mod'
+
+    modalities = set()
+    modeltype = {}
+    # for t in args.task.split("-"):
+    #     modeltype[t] = '_'.join(sorted(getattr(args, f"{t}_mod").split("-")))
+    if len(args.ihm_mod) != 0 and 'ihm' in args.task.split("-"):
+        modeltype['ihm'] = '_'.join(sorted(args.ihm_mod.split("-")))
+        for e in args.ihm_mod.split("-"):
+            modalities.add(e)
+    if len(args.los_mod) != 0 and 'los' in args.task.split("-"):
+        modeltype['los'] = '_'.join(sorted(args.los_mod.split("-")))
+        for e in args.los_mod.split("-"):
+            modalities.add(e)
+    if len(args.pheno_mod) != 0 and 'pheno' in args.task.split("-"):
+        modeltype['pheno'] = '_'.join(sorted(args.pheno_mod.split("-")))
+        for e in args.pheno_mod.split("-"):
+            modalities.add(e)
+    if len(args.rad_mod) != 0 and 'readmission' in args.task.split("-"):
+        modeltype['readmission'] = '_'.join(sorted(args.rad_mod.split("-")))
+        for e in args.rad_mod.split("-"):
+            modalities.add(e)
+    if len(args.mor_mod) != 0 and 'mortality' in args.task.split("-"):
+        modeltype['mortality'] = '_'.join(sorted(args.mor_mod.split("-")))
+        for e in args.mor_mod.split("-"):
+            modalities.add(e)
+    if len(args.birads_mod) != 0 and 'birads' in args.task.split("-"):
+        modeltype['birads'] = '_'.join(sorted(args.birads_mod.split("-")))
+        for e in args.birads_mod.split("-"):
+            modalities.add(e)
+    if len(args.risk_mod) != 0 and 'risk' in args.task.split("-"):
+        modeltype['risk'] = '_'.join(sorted(args.risk_mod.split("-")))
+        for e in args.risk_mod.split("-"):
+            modalities.add(e)
+    if len(args.density_mod) != 0 and 'density' in args.task.split("-"):
+        modeltype['density'] = '_'.join(sorted(args.density_mod.split("-")))
+        for e in args.density_mod.split("-"):
+            modalities.add(e)
+    
+        
+    # modeltype = ''
+    # modals = [*modalities]
+    # modals.sort()
+    # for m in modals:
+    #     modeltype = modeltype + m + '_'
+    # modeltype = modeltype[:-1]
+
+    # if len(args.rad_mod) != 0 and 'readmission' in args.task:
+    #     for e in args.rad_mod.split("-"):
+    #         modalities.add(e)
+    # if len(args.mor_mod) != 0 and 'mortality' in args.task:
+    #     for e in args.mor_mod.split("-"):
+    #         modalities.add(e)
+    # modalities = [*modalities]
+
+    if 'Text' in modalities:
+        BioBert, BioBertConfig, tokenizer = loadBert(args, device)
+    else:
+        tokenizer = None
+        BioBert = None
+
+    (
+        all_train,
+        all_valid,
+        all_test,
+        criterion,
+        modalities_per_task,
+        train_weights,
+        all_encoders,
+        logits,
+        all_modalities,
+    ) = setup_tasks_and_modalities(
+        args=args,
+        device=device,
+        tokenizer=tokenizer,
+        modeltype=modeltype,
+        modalities=modalities,
+        BioBert=BioBert,
+    )
+    
+    # TODO: each feature a modality? clustering feature?
+    # TODO: should we keep feature specific encoders?
+    # import pdb; pdb.set_trace()
+    
     perceiver_mod = []
     if not args.shared_modality_encoders:
         for t in modalities_per_task:
@@ -930,10 +581,11 @@ def main():
             savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
-        torch.save(model,savedir)
+        # torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
-            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+            # torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+    
     _ = train(
         model,
         all_train,

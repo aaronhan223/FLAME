@@ -59,7 +59,11 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --use_pt_text_embeddings \
                 --reg_ts \
                 --fusion_model 'crossattntransformer' \
-                --shared_modality_encoders
+                --shared_modality_encoders \
+                --modality_drop_rate 0.0 \
+                --multitask_moe \
+                --use_wandb \
+                --wandb_project 'clinical-highmmt' 
                 # --linear_probe \
                 # --base_task_mods 'TS-Text-CXR' \
                 # --base_task 'los' \

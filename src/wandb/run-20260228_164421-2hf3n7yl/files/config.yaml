@@ -1,0 +1,387 @@
+_wandb:
+    value:
+        cli_version: 0.25.0
+        e:
+            n6bni3o2enk08rbqbktijifqmdze0578:
+                args:
+                    - --num_train_epochs
+                    - "50"
+                    - --kernel_size
+                    - "1"
+                    - --train_bs_mimic
+                    - "8"
+                    - --train_bs_eicu
+                    - "128"
+                    - --train_bs_embed
+                    - "512"
+                    - --eval_batch_size
+                    - "8"
+                    - --seed
+                    - "42"
+                    - --gradient_accumulation_steps
+                    - "16"
+                    - --num_update_bert_epochs
+                    - "2"
+                    - --bertcount
+                    - "0"
+                    - --ts_learning_rate
+                    - "0.0004"
+                    - --txt_learning_rate
+                    - "0.00002"
+                    - --notes_order
+                    - Last
+                    - --num_of_notes
+                    - "5"
+                    - --max_length
+                    - "1024"
+                    - --layers
+                    - "3"
+                    - --embed_dim
+                    - "128"
+                    - --perceiver_dim
+                    - "64"
+                    - --model_name
+                    - bioLongformer
+                    - --task
+                    - birads
+                    - --ihm_mod
+                    - TS-Text-CXR
+                    - --los_mod
+                    - TS-Text-CXR
+                    - --pheno_mod
+                    - TS-Text-CXR
+                    - --rad_mod
+                    - T1-T2-T3-T4-T5
+                    - --mor_mod
+                    - T1-T2-T3-T4-T5
+                    - --birads_mod
+                    - cc-mlo-2dcc-2dmlo
+                    - --risk_mod
+                    - cc-mlo-2dcc-2dmlo
+                    - --density_mod
+                    - cc-mlo-2dcc-2dmlo
+                    - --mimic_path
+                    - /export/io79/data/schaud35/datasets/
+                    - --eicu_path
+                    - /export/io79/data/schaud35/datasets/eicu/processed/
+                    - --embed_path
+                    - /export/io79/data/schaud35/datasets/EMBED/
+                    - --num_heads
+                    - "8"
+                    - --embed_time
+                    - "64"
+                    - --tt_max
+                    - "48"
+                    - --tt_max_eicu
+                    - "1"
+                    - --TS_mixup
+                    - --mixup_level
+                    - batch
+                    - --cross_method
+                    - moe
+                    - --fp16
+                    - --reg_ts
+                    - --fusion_model
+                    - fusemoe
+                    - --num_of_experts
+                    - "3"
+                    - "5"
+                    - --top_k
+                    - "2"
+                    - "4"
+                    - --router_type
+                    - joint
+                    - --gating_function
+                    - laplace
+                    - --use_pt_text_embeddings
+                    - --shared_modality_encoders
+                    - --modality_drop_rate
+                    - "0.0"
+                    - --multitask_moe
+                    - --use_wandb
+                    - --wandb_project
+                    - clinical-highmmt
+                codePath: src/mimiciv_tasks.py
+                codePathLocal: mimiciv_tasks.py
+                cpu_count: 32
+                cpu_count_logical: 64
+                cudaVersion: "12.5"
+                disk:
+                    /:
+                        total: "12700318646272"
+                        used: "82925694976"
+                email: shravan25.chaudhari@gmail.com
+                executable: /cis/home/schaud35/anaconda3/envs/mmt/bin/python
+                git:
+                    commit: 1d5e002c5ddd1ad52b7e288510c52ff8e928981a
+                    remote: https://github.com/aaronhan223/clinical-highmmt
+                gpu: NVIDIA RTX A5000
+                gpu_count: 8
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-966f2915-41aa-cc03-40fa-0fa14ac1383a
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-83eb686f-a34f-83d4-ef97-27b71ad74bc0
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-dbbcb277-e032-00f6-9eeb-55f0f921b570
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-9faf8d3f-e2ed-8b74-7860-f88a3c6996c4
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-1192cca8-b932-2c1e-73fb-9b72f31831ce
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-c101cc25-f19a-a997-a6e4-f87aa85f8941
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-42ed8ced-b995-86c9-7936-c4c6ee086ef4
+                    - architecture: Ampere
+                      cudaCores: 8192
+                      memoryTotal: "25757220864"
+                      name: NVIDIA RTX A5000
+                      uuid: GPU-04c6c073-18bf-519e-7b08-b818bdeb55ba
+                host: io79
+                memory:
+                    total: "540662587392"
+                os: Linux-5.15.0-139-generic-x86_64-with-glibc2.31
+                program: /cis/home/schaud35/clinical-highmmt/src/mimiciv_tasks.py
+                python: CPython 3.10.18
+                root: /cis/home/schaud35/clinical-highmmt/src
+                startedAt: "2026-02-28T21:44:21.953971Z"
+                writerId: n6bni3o2enk08rbqbktijifqmdze0578
+        m: []
+        python_version: 3.10.18
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 49
+                - 53
+                - 71
+                - 98
+            "2":
+                - 1
+                - 5
+                - 11
+                - 49
+                - 53
+                - 71
+                - 98
+            "3":
+                - 16
+            "4": 3.10.18
+            "5": 0.25.0
+            "6": 4.44.0
+            "8":
+                - 2
+            "12": 0.25.0
+            "13": linux-x86_64
+FTLSTM:
+    value: false
+Interp:
+    value: false
+TS_mixup:
+    value: true
+TS_model:
+    value: Atten
+base_task:
+    value: ""
+base_task_mods:
+    value: ""
+bertcount:
+    value: 0
+birads_mod:
+    value: cc-mlo-2dcc-2dmlo
+chunk:
+    value: false
+chunk_type:
+    value: sent_doc_pos
+cpu:
+    value: false
+cross_layers:
+    value: 3
+cross_method:
+    value: moe
+datagereate_seed:
+    value: 42
+debug:
+    value: false
+density_mod:
+    value: cc-mlo-2dcc-2dmlo
+dropout:
+    value: 0.1
+eicu_path:
+    value: /export/io79/data/schaud35/datasets/eicu/processed/
+embed_dim:
+    value: 128
+embed_path:
+    value: /export/io79/data/schaud35/datasets/EMBED/
+embed_time:
+    value: 64
+eval_batch_size:
+    value: 8
+eval_score:
+    value:
+        - auc
+        - auprc
+        - f1
+fine_tune:
+    value: false
+first_n_item:
+    value: 3
+fp16:
+    value: true
+fusion_model:
+    value: fusemoe
+gating_function:
+    value:
+        - laplace
+generate_data:
+    value: false
+gradient_accumulation_steps:
+    value: 16
+hidden_size:
+    value: 128
+ihm_mod:
+    value: TS-Text-CXR
+irregular_learn_emb_cxr:
+    value: false
+irregular_learn_emb_ecg:
+    value: false
+irregular_learn_emb_text:
+    value: false
+irregular_learn_emb_ts:
+    value: false
+kernel_size:
+    value: 1
+layers:
+    value: 3
+linear_probe:
+    value: false
+lora:
+    value: false
+los_mod:
+    value: TS-Text-CXR
+lr_scheduler_type:
+    value: linear
+max_length:
+    value: 1024
+mean_mask_length:
+    value: 3
+mimic_path:
+    value: /export/io79/data/schaud35/datasets/
+mixed_precision:
+    value: fp16
+mixup_level:
+    value: batch
+modality_drop_rate:
+    value: 0
+mode:
+    value: train
+model_name:
+    value: bioLongformer
+model_path:
+    value: null
+mor_mod:
+    value: T1-T2-T3-T4-T5
+multitask_moe:
+    value: true
+notes_order:
+    value: Last
+num_heads:
+    value: 8
+num_labels:
+    value: 2
+num_of_experts:
+    value:
+        - 3
+        - 5
+num_of_notes:
+    value: 5
+num_train_epochs:
+    value: 50
+num_update_bert_epochs:
+    value: 2
+pad_to_max_length:
+    value: false
+perceiver_dim:
+    value: 64
+pheno_mod:
+    value: TS-Text-CXR
+pt_mask_ratio:
+    value: 0.15
+rad_mod:
+    value: T1-T2-T3-T4-T5
+ratio_notes_order:
+    value: null
+reg_ts:
+    value: true
+results_dir:
+    value: /cis/home/schaud35/clinical-highmmt/src/results
+risk_mod:
+    value: cc-mlo-2dcc-2dmlo
+router_type:
+    value: joint
+seed:
+    value: 42
+self_cross:
+    value: false
+shared_modality_encoders:
+    value: true
+task:
+    value: birads
+tensorboard_dir:
+    value: null
+top_k:
+    value:
+        - 2
+        - 4
+train_bs_eicu:
+    value: 128
+train_bs_embed:
+    value: 512
+train_bs_mimic:
+    value: 8
+ts_learning_rate:
+    value: 0.0004
+ts_to_txt:
+    value: false
+tt_max:
+    value: 48
+tt_max_eicu:
+    value: 1
+txt_learning_rate:
+    value: 2e-05
+txt_to_ts:
+    value: false
+use_pt_text_embeddings:
+    value: true
+use_wandb:
+    value: true
+wandb_project:
+    value: clinical-highmmt
+wandb_run_name:
+    value: null
+warmup_proportion:
+    value: 0.1
+weight_decay:
+    value: 0.01

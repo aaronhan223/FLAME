@@ -17,6 +17,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --mor_mod 'T1-T2-T3-T4-T5'\
                 --mimic_path '/export/io79/data/schaud35/datasets/'\
                 --eicu_path '/export/io79/data/schaud35/datasets/eicu/processed/'\
+                --embed_path '/export/io79/data/schaud35/datasets/EMBED/'\
                 --num_heads 8\
                 --embed_time 64\
                 --tt_max 48\
@@ -33,7 +34,10 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --gating_function "laplace" \
                 --use_pt_text_embeddings \
                 --shared_modality_encoders \
-                --modality_drop_rate 0.0 
+                --modality_drop_rate 0.0 \
+                --multitask_moe \
+                --use_wandb \
+                --wandb_project 'clinical-highmmt' 
                 # --linear_probe \
                 # --base_task_mods 'TS-Text-CXR' \
                 # --base_task 'los' \
