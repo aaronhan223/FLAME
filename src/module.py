@@ -9,10 +9,9 @@ SEQMOE=True
 from torch import nn
 from torch.nn import Parameter
 import torch.nn.functional as F
-if not SEQMOE:
-    from src.sparse_moe import MoE, MoEConfig
-else:
-    from src.fusemoe_multitask import SeqMoE, MoEConfig
+from src.sparse_moe import MoE, MoEConfig
+from src.fusemoe_multitask import SeqMoE 
+from src.fusemoe_multitask import MoEConfig as SeqMoEConfig
 from src.hme import HierarchicalMoE
 import sys
 import pdb
@@ -529,6 +528,7 @@ class TransformerCrossEncoder(nn.Module):
             m, idx = findmodalityandindex(self.modalities, mn)
             modality_idxs.append(idx)
         x_list = [self.embed_scale * x_in for x_in in x_in_list]
+        
         if self.q_seq_len_1 is not None:
             for length in lengths:
                 positions.append(torch.tensor(torch.arange(length),dtype=torch.long).to(self.device))
@@ -598,7 +598,7 @@ class TransformerCrossEncoderLayer(nn.Module):
         self.pre_ffn_layer_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
         
         if args.cross_method == 'moe':
-            if not SEQMOE:
+            if not args.multitask_moe:
                 moe_config = MoEConfig(
                 num_experts=args.num_of_experts[0],
                 moe_input_size=args.tt_max * args.embed_dim * num_modalities,
@@ -609,9 +609,9 @@ class TransformerCrossEncoderLayer(nn.Module):
                 num_modalities=self.num_modalities,#args.num_modalities,
                 gating=args.gating_function[0],
                 modalities=modalities)
-                self.moe = Moe(moe_config)
+                self.moe = MoE(moe_config)
             else:
-                moe_config = MoEConfig(
+                moe_config = SeqMoEConfig(
                 num_experts=args.num_of_experts[0],
                 embed_dim=args.embed_dim,
                 moe_hidden_size=args.hidden_size,

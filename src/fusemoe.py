@@ -66,6 +66,11 @@ class MULTCrossModel(nn.Module):
         self.d_t4 = args.embed_dim
         self.d_t5 = args.embed_dim
         self.d_eicu = args.embed_dim
+        self.d_cc = args.embed_dim
+        self.d_mlo = args.embed_dim
+        self.d_2dcc = args.embed_dim
+        self.d_2dmlo = args.embed_dim
+        self.d_allviews = args.embed_dim*4
 
         # if self.irregular_learn_emb_ts or self.irregular_learn_emb_text:
         #     self.time_query=torch.linspace(0, 1., self.tt_max)
@@ -156,7 +161,17 @@ class MULTCrossModel(nn.Module):
                     dim += self.d_t5     
                 if f"eicu_{task}" in t:
                     dim += self.d_eicu    
-            
+                if f"cc_{task}" in t:
+                    dim += self.d_cc
+                if f"mlo_{task}" in t:
+                    dim += self.d_mlo
+                if f"2dcc_{task}" in t:
+                    dim += self.d_2dcc
+                if f"2dmlo_{task}" in t:
+                    dim += self.d_2dmlo
+                if f"allviews_{task}" in t:
+                    dim += self.d_allviews
+                
                 self.proj1[task] = nn.Linear(dim, dim)
                 self.proj2[task] = nn.Linear(dim, dim)
                 self.out_layer[task] = nn.Linear(dim, output_dim)
@@ -468,7 +483,37 @@ class MULTCrossModel(nn.Module):
                     modalities.append('eicu')
                 else:
                     modalities = ['eicu']
-
+            if f'cc_{task.upper()}' == m:
+                proj_x_cc = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('cc')
+                else:
+                    modalities = ['cc']
+            if f'mlo_{task.upper()}' == m:
+                proj_x_mlo = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('mlo')
+                else:
+                    modalities = ['mlo']
+            if f'2dcc_{task.upper()}' == m:
+                proj_x_2dcc = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('2dcc')
+                else:
+                    modalities = ['2dcc']
+            if f'2dmlo_{task.upper()}' == m:
+                proj_x_2dmlo = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('2dmlo')
+                else:
+                    modalities = ['2dmlo']
+            if f'allviews_{task.upper()}' == m:
+                proj_x_allviews = multi_modality_data[m].transpose(1,0)
+                if modalities:
+                    modalities.append('allviews')
+                else:
+                    modalities = ['allviews']
+        
         modalities = sorted(modalities)
         modalities = '_'.join(modalities)
         
@@ -480,13 +525,15 @@ class MULTCrossModel(nn.Module):
                 'TS':   'proj_x_ts',   'Text': 'proj_x_txt',  'CXR':  'proj_x_cxr',
                 'ECG':  'proj_x_ecg',  'T1':   'proj_x_t1',   'T2':   'proj_x_t2',
                 'T3':   'proj_x_t3',   'T4':   'proj_x_t4',   'T5':   'proj_x_t5',
-                'eicu': 'proj_x_eicu',
+                'eicu': 'proj_x_eicu',  'cc': 'proj_x_cc',    'mlo': 'proj_x_mlo',
+                '2dcc': 'proj_x_2dcc',    '2dmlo': 'proj_x_2dmlo', 'allviews': 'proj_x_allviews'
             }
             _short_name = {
                 'TS':   'ts',    'Text': 'text',  'CXR':  'cxr',
                 'ECG':  'ecg',   'T1':   't1',    'T2':   't2',
                 'T3':   't3',    'T4':   't4',    'T5':   't5',
-                'eicu': 'eicu',
+                'eicu': 'eicu',  'cc': 'cc',    'mlo': 'mlo',
+                '2dcc': '2dcc',    '2dmlo': '2dmlo', 'allviews': 'allviews'
             }
             _lv = locals()
             tokens = modalities.split('_')

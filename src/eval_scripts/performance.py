@@ -35,3 +35,24 @@ def metrics_multilabel(y_true, predictions, verbose=1):
             "ave_auc_micro": ave_auc_micro,
             "ave_auc_macro": ave_auc_macro,
             "ave_auc_weighted": ave_auc_weighted}
+
+def metrics_multiclass(y_true, predictions, verbose=1):
+    # import pdb; pdb.set_trace()
+    auc_scores = metrics.roc_auc_score(y_true, predictions, multi_class="ovr", average=None)
+    ave_auc_micro = metrics.roc_auc_score(y_true, predictions, multi_class="ovr",
+                                          average="micro")
+    ave_auc_macro = metrics.roc_auc_score(y_true, predictions, multi_class="ovr",
+                                          average="macro")
+    ave_auc_weighted = metrics.roc_auc_score(y_true, predictions, multi_class="ovr",
+                                             average="weighted")
+
+    if verbose:
+        # print("ROC AUC scores for labels:", auc_scores)
+        print("ave_auc_micro = {}".format(ave_auc_micro))
+        print("ave_auc_macro = {}".format(ave_auc_macro))
+        print("ave_auc_weighted = {}".format(ave_auc_weighted))
+
+    return{"auc_scores": auc_scores,
+            "ave_auc_micro": ave_auc_micro,
+            "ave_auc_macro": ave_auc_macro,
+            "ave_auc_weighted": ave_auc_weighted}

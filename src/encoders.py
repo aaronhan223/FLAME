@@ -375,3 +375,53 @@ class FSEncoder(nn.Module):
             embedding[modalities[i]] = type_representations[i].unsqueeze(0).permute(1, 0, 2)
         return embedding
 
+class EMBEDEncoder(nn.Module):
+    def __init__(
+        self,
+        args,
+        device,
+        modalities,
+        shared_time_encoder=None,
+    ):
+        super(EMBEDEncoder, self).__init__()
+        self.args = args
+        self.device = device
+        self.modalities = modalities
+        self.shared_time_encoder = shared_time_encoder
+        # self.transformer = nn.ModuleList([TransformerBlock(args.embed_dim, args.num_heads, args.dropout) for _ in range(args.layers)]).to(self.device)
+        self.dropout = nn.Dropout(args.dropout)
+        self.projector = nn.Sequential(
+            nn.Linear(768, args.embed_dim),
+            nn.ReLU(),
+            # nn.Linear(256, 128)
+        ).to(self.device)
+        self.all_projector = nn.Sequential(
+            nn.Linear(768*4, args.embed_dim),
+            nn.ReLU(),
+            # nn.Linear(256, 128)
+        ).to(self.device)
+    
+    def forward(self, embed_cc, embed_mlo, embed_2dcc, embed_2dmlo, all_views, modalities, task):
+        
+        embedding = {}
+        if f'cc_{task}' in modalities:
+            idx = [index for index, mod in enumerate(modalities) if f"cc_{task}" == mod][0]
+            embed_c_view_cc = self.projector(embed_cc.to(self.device))
+            embedding[modalities[idx]] = embed_c_view_cc.unsqueeze(0).permute(1, 0, 2)
+        if f'mlo_{task}' in modalities:
+            idx = [index for index, mod in enumerate(modalities) if f"mlo_{task}" == mod][0]
+            embed_c_view_mlo = self.projector(embed_mlo.to(self.device))
+            embedding[modalities[idx]] = embed_c_view_mlo.unsqueeze(0).permute(1, 0, 2)
+        if f'2dcc_{task}' in modalities:
+            idx = [index for index, mod in enumerate(modalities) if f"2dcc_{task}" == mod][0]
+            embed_c_view_2dcc = self.projector(embed_2dcc.to(self.device))
+            embedding[modalities[idx]] = embed_c_view_2dcc.unsqueeze(0).permute(1, 0, 2)
+        if f'2dmlo_{task}' in modalities:
+            idx = [index for index, mod in enumerate(modalities) if f"2dmlo_{task}" == mod][0]
+            embed_c_view_2dmlo = self.projector(embed_2dmlo.to(self.device))
+            embedding[modalities[idx]] = embed_c_view_2dmlo.unsqueeze(0).permute(1, 0, 2)
+        if f'all_views_{task}' in modalities:
+            idx = [index for index, mod in enumerate(modalities) if f"all_views_{task}" == mod][0]
+            embed_c_all_views = self.all_projector(all_views.to(self.device))
+            embedding[modalities[idx]] = embed_c_all_views.unsqueeze(0).permute(1, 0, 2)
+        return embedding
