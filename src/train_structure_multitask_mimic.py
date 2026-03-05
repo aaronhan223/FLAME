@@ -26,7 +26,7 @@ def drop_modalities(indict, drop_rate):
         A copy of indict with dropped modalities replaced by zero tensors of the same shape.
     """
     if drop_rate <= 0 or len(indict) <= 1:
-        return indict
+        return indict, {}
     keys = list(indict.keys())
     keep = [k for k in keys if random.random() >= drop_rate]
     # Ensure at least one modality remains active
@@ -34,12 +34,50 @@ def drop_modalities(indict, drop_rate):
         keep = [random.choice(keys)]
 
     masked = {}
+    masked_keys = []
     for key in keys:
         if key in keep:
             masked[key] = indict[key]
         else:
             masked[key] = torch.zeros_like(indict[key])
-    return masked
+            masked_keys.append(key)
+    return masked, masked_keys
+
+
+def replace_missing_embeddings(indict, missing_embeddings, masked_keys=[], optimizer=None):
+    """Replace already-dropped (zeroed) modalities with learnable embeddings.
+
+    Args:
+        indict: dict mapping modality names to modality embedding tensors.
+        missing_embeddings: torch.nn.ParameterDict storing one learnable token per modality.
+        optimizer: optional optimizer; when provided, newly created embeddings are added to it.
+
+    Returns:
+        A copy of indict where zeroed modalities are replaced by their learned embeddings.
+    """
+    replaced = {}
+    
+    for key, value in indict.items():
+        # is_dropped = bool(torch.count_nonzero(value.detach()).item() == 0)
+        if key not in masked_keys:
+            replaced[key] = value
+            continue
+
+        if key.split('_')[0] not in missing_embeddings:
+            embed_shape = (1,) + tuple(value.shape[1:])
+            missing_param = torch.nn.Parameter(
+                torch.empty(embed_shape, device=value.device, dtype=value.dtype)
+            )
+            torch.nn.init.normal_(missing_param, mean=0.0, std=0.02)
+            missing_embeddings[key.split('_')[0]] = missing_param
+            if optimizer is not None:
+                optimizer.add_param_group({'params': [missing_embeddings[key.split('_')[0]]]})
+
+        missing_embed = missing_embeddings[key.split('_')[0]].to(device=value.device, dtype=value.dtype)
+        expand_shape = (value.shape[0],) + tuple(missing_embed.shape[1:])
+        replaced[key] = missing_embed.expand(expand_shape)
+
+    return replaced
 
 
 def _to_float_if_scalar(value):
@@ -102,6 +140,8 @@ def train(
         for enc in encoder.values():
             params_to_optimize += list(enc.parameters())
         optim = optimizer(params_to_optimize, lr=lr, weight_decay=weight_decay)
+
+    missing_embeddings = torch.nn.ParameterDict()
     # --- LoRA Setup ---
     # lora_config = LoraConfig(
     #     task_type=TaskType.FEATURE_EXTRACTION,  # or SEQ_CLS, CAUSAL_LM, etc. depending on model type
@@ -219,7 +259,10 @@ def train(
                 indict={}
                 for i in range(len(modalities[int(ii)])):
                     indict[modalities[int(ii)][i]] = embeddings[modalities[int(ii)][i]].float().to(device)
-                indict = drop_modalities(indict, args.modality_drop_rate)
+                
+                indict, masked_keys = drop_modalities(indict, args.modality_drop_rate)
+                if args.modality_drop_rate > 0:
+                    indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys, optimizer=optim)
                 
                 if recon:
                     out, rec = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
@@ -317,7 +360,9 @@ def train(
                     indict={}
                     for i in range(len(modalities[ii])):
                         indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
-                    indict = drop_modalities(indict, args.modality_drop_rate)
+                    indict, masked_keys = drop_modalities(indict, args.modality_drop_rate)
+                    if args.modality_drop_rate > 0:
+                        indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys)
                     
                     if recon:
                         out, rec = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
@@ -386,7 +431,7 @@ def train(
                 torch.save(model, savedir)
                 for ii in range(len(modalities)):
                     task = modalities[int(ii)][0].split('_')[1]
-                    torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+                    torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
                 val_log['val/best_score_sum'] = float(bestacc)
         print('Model saved to ', savedir)
         if use_wandb:
@@ -414,6 +459,7 @@ def train(
                     'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
                     'readmission_mod': args.rad_mod,
                     'mortality_mod': args.mor_mod,
+                    'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
                     'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
                     'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
                     'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
@@ -433,22 +479,25 @@ def train(
                 }
                 task_mod_key = f'{args.task}_mod'
                 if args.lora:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.txt"
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
                 elif args.fine_tune:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.txt"
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
                 elif args.linear_probe:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.txt"
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
                 else:
                     if args.shared_modality_encoders:
-                        out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+                        if args.multitask_moe:
+                            out_fname = f"{args.results_dir}/flame/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                        else:
+                            out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     else:
-                        out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}.txt"
+                        out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
                 f.write(f"\n################## Epoch {ep} ##################\n")
@@ -502,7 +551,9 @@ def train(
                         indict={}
                         for i in range(0, len(modalities[ii])): # for each modality within that task
                             indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
-                        indict = drop_modalities(indict, args.modality_drop_rate)
+                        indict, masked_keys = drop_modalities(indict, args.modality_drop_rate)
+                        if args.modality_drop_rate > 0:
+                            indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys)
                         
                         out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                         if 'PHENO' in modalities[int(ii)][0]:

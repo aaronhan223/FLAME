@@ -266,6 +266,7 @@ def main():
         'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
         'readmission_mod': args.rad_mod,
         'mortality_mod': args.mor_mod,
+        'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
         'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
         'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
         'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
@@ -566,19 +567,22 @@ def main():
         modalities_per_task
     )
     if args.lora:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fine_tune:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.linear_probe:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
         if args.shared_modality_encoders:
-            savedir = f'./checkpoints/{args.fusion_model}/multitask/{args.task}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+            if args.multitask_moe:
+                savedir = f'./checkpoints/flame/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+            else:
+                savedir = f'./checkpoints/{args.fusion_model}/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
         else:
-            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
         torch.save(model,savedir)

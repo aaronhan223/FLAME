@@ -427,7 +427,7 @@ class MoE(nn.Module):
                 all_loads.append(load)
             return all_gates, all_loads
 
-    def forward(self, x, train=True, loss_coef=1e-2, modalities=None):
+    def forward(self, x, modality_labels=[], train=True, loss_coef=1e-2, modalities=None):
         """Args:
         x: tensor shape [batch_size, input_size]
         gating: type of gating function
@@ -439,7 +439,7 @@ class MoE(nn.Module):
         training loss of the model.  The backpropagation of this loss
         encourages all experts to be approximately equally used across a batch.
         """
-        # import pdb; pdb.set_trace()
+        
         gates, load = self.noisy_top_k_gating(x, train, modalities=modalities)
         # calculate importance loss
         if isinstance(gates, list):

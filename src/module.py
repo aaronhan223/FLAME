@@ -4,8 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-
-SEQMOE=True
 from torch import nn
 from torch.nn import Parameter
 import torch.nn.functional as F
@@ -666,7 +664,7 @@ class TransformerCrossEncoderLayer(nn.Module):
         residual = x_list
         x_list = [l(x) for l, x in zip([self.pre_encoder_attn_layer_norm[i] for i in modality_idxs], x_list)]
         if self.args.cross_method in ["moe", "hme"]:
-            if not SEQMOE:
+            if not self.args.multitask_moe:
                 x_mod_in = [torch.reshape(x, (bs, -1)) for x in x_list]
                 embd_len_list = [0] + list(np.cumsum([x.shape[1] for x in x_mod_in]))
                 embeddings = torch.concat(x_mod_in, dim=1)
