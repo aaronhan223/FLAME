@@ -1,0 +1,86 @@
+[
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.gate.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.989396333694458,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 6.469714641571045,
+    "sv_ratio_1_2": 1.0410152673721313
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.gate.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.243778705596924,
+    "max_rank": 3,
+    "rank_90_energy": 2,
+    "rank_99_energy": 3,
+    "top_sv": 0.008351805619895458,
+    "sv_ratio_1_2": 3.1079046726226807
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.1.moe.gate.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.990273952484131,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 6.892494201660156,
+    "sv_ratio_1_2": 1.1711558103561401
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.1.moe.gate.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 1.5992445945739746,
+    "max_rank": 3,
+    "rank_90_energy": 1,
+    "rank_99_energy": 2,
+    "top_sv": 0.02777913212776184,
+    "sv_ratio_1_2": 5.1994547843933105
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.2.moe.gate.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.996063709259033,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 6.186384201049805,
+    "sv_ratio_1_2": 1.0153504610061646
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.2.moe.gate.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.1701884269714355,
+    "max_rank": 3,
+    "rank_90_energy": 1,
+    "rank_99_energy": 3,
+    "top_sv": 0.00785908568650484,
+    "sv_ratio_1_2": 4.053249835968018
+  }
+]

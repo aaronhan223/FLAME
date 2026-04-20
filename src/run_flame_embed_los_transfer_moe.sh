@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=6
 
 python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
@@ -7,9 +7,9 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --ts_learning_rate 0.0004 --txt_learning_rate 0.00002 \
                 --notes_order 'Last' --num_of_notes 5 --max_length 1024 --layers 3\
                 --embed_dim 128 \
-                --perceiver_dim 128 \
+                --perceiver_dim 64 \
                 --model_name "bioLongformer"\
-                --task 'ihm'\
+                --task 'los'\
                 --ihm_mod 'TS-Text-CXR'\
                 --los_mod 'TS-Text-CXR'\
                 --pheno_mod 'TS-Text-CXR'\
@@ -20,7 +20,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --density_mod 'cc-mlo-2dcc-2dmlo'\
                 --mimic_path '/export/io79/data/schaud35/datasets/'\
                 --eicu_path '/export/io79/data/schaud35/datasets/eicu/processed/'\
-                --embed_path '/export/io79/data/schaud35/datasets/EMBED/'\
+                --embed_path '/export/io79/data/schaud35/datasets/EMBED'\
                 --num_heads 8\
                 --embed_time 64\
                 --tt_max 48\
@@ -30,22 +30,16 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --cross_method 'moe'\
                 --fp16 \
                 --reg_ts \
+                --balance_loss_coef 0.01 \
                 --fusion_model 'fusemoe' \
-                --use_pt_text_embeddings \
                 --num_of_experts 3 5 \
                 --top_k 2 4 \
                 --router_type 'joint' \
                 --gating_function "laplace" \
+                --use_pt_text_embeddings \
                 --shared_modality_encoders \
                 --modality_drop_rate 0.0 \
-                # --multitask_moe \
-                # --use_wandb \
-                # --wandb_project 'clinical-highmmt' 
-                # --linear_probe \
-                # --base_task_mods 'TS-Text-CXR' \
-                # --base_task 'los' \
-                # --use_pt_text_embeddings \
-
-
-# For multi-task MIMIC use train_bs_mimic=2 else 4
-# For single task without --use_pt_text_embeddings use train_bs_mimic=8, num_of_notes=5
+                --multitask_moe \
+                --transfer_moe \
+                --base_task 'ihm' \
+                --base_task_mods 'TS-Text'

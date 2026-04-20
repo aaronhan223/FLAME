@@ -50,7 +50,7 @@ class MULTCrossModel(nn.Module):
         self.modalities_per_task = modalities_per_task
         self.num_modalities = len(self.modalities)
         self.use_pt_text_embeddings = args.use_pt_text_embeddings
-        self.token_type_embeddings = nn.Embedding(self.num_modalities, args.embed_dim)
+        # self.token_type_embeddings = nn.Embedding(self.num_modalities, args.embed_dim)
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(latent_dim*2),
@@ -133,7 +133,7 @@ class MULTCrossModel(nn.Module):
 
         output_dim = num_classes # args.num_labels
         # if self.modeltype=="TS_Text":
-        if self.cross_method in ["self_cross", "moe", "hme"]:
+        if self.cross_method in ["self_cross", "moe", "hme", "flexmoe"]:
             self.trans_self_cross_ts_txt = self.get_cross_network(args, layers=args.cross_layers)
             self.proj1 = nn.ModuleDict()
             self.proj2 = nn.ModuleDict()
@@ -519,7 +519,7 @@ class MULTCrossModel(nn.Module):
         
         balance_loss = None
         
-        if self.cross_method in ["self_cross", "moe", "hme"]:
+        if self.cross_method in ["self_cross", "moe", "hme", "flexmoe"]:
             # Maps each modality token → (local variable name, short name for the model)
             _proj_var = {
                 'TS':   'proj_x_ts',   'Text': 'proj_x_txt',  'CXR':  'proj_x_cxr',
@@ -585,7 +585,10 @@ class MULTCrossModel(nn.Module):
         last_hs_proj += last_hs
         if get_pre_logits or get_latent or get_catted:
             return last_hs_proj
-        return self.to_logits(last_hs_proj)
+        
+        if use_recon:
+            return self.to_logits(last_hs_proj), None, balance_loss
+        return self.to_logits(last_hs_proj), balance_loss
         # output = self.out_layer(last_hs_proj)
 
         # if 'ihm' in self.task or 'los' in self.task:

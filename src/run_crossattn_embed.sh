@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=4
 
 python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
@@ -9,7 +9,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_dim 128 \
                 --perceiver_dim 128 \
                 --model_name "bioLongformer"\
-                --task 'density'\
+                --task 'ihm-birads'\
                 --ihm_mod 'TS-Text-CXR'\
                 --los_mod 'TS-Text-CXR'\
                 --pheno_mod 'TS-Text-CXR'\

@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=3
 
 python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
@@ -9,9 +9,9 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_dim 128 \
                 --perceiver_dim 64 \
                 --model_name "bioLongformer"\
-                --task 'mortality-readmission'\
-                --ihm_mod 'TS-Text-CXR'\
-                --los_mod 'TS-Text-CXR'\
+                --task 'ihm'\
+                --ihm_mod 'TS-Text'\
+                --los_mod 'TS-CXR'\
                 --pheno_mod 'TS-Text-CXR'\
                 --rad_mod 'T1-T2-T3-T4-T5'\
                 --mor_mod 'T1-T2-T3-T4-T5'\
@@ -30,8 +30,9 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --cross_method 'moe'\
                 --fp16 \
                 --reg_ts \
+                --balance_loss_coef 5.0 \
                 --fusion_model 'fusemoe' \
-                --num_of_experts 3 5 \
+                --num_of_experts 16 \
                 --top_k 2 4 \
                 --router_type 'joint' \
                 --gating_function "laplace" \

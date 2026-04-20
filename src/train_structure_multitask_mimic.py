@@ -8,6 +8,7 @@ import pdb
 from peft import LoraConfig, get_peft_model, TaskType
 import os
 from src.utils import *
+from src.analysis.moe_diagnostics import MoEDiagnosticsLogger
 
 try:
     import wandb
@@ -128,18 +129,30 @@ def train(
     ):
 
     # Collect all parameters to optimize: model + all encoders
-    if args.lora:
-        # For LoRA: only trainable parameters from model + all encoder parameters
+    if args.lora or args.transfer_moe:
+        # Only trainable parameters (frozen params excluded)
         params_to_optimize = list(filter(lambda p: p.requires_grad, model.parameters()))
         for enc in encoder.values():
-            params_to_optimize += list(enc.parameters())
+            params_to_optimize += list(filter(lambda p: p.requires_grad, enc.parameters()))
         optim = optimizer(params_to_optimize, lr=lr, weight_decay=weight_decay)
     else:
         # For full fine-tuning: all model parameters + all encoder parameters
-        params_to_optimize = list(model.parameters())
-        for enc in encoder.values():
-            params_to_optimize += list(enc.parameters())
-        optim = optimizer(params_to_optimize, lr=lr, weight_decay=weight_decay)
+        # params_to_optimize = list(model.parameters())
+        # for enc in encoder.values():
+        #     params_to_optimize += list(enc.parameters())
+        # optim = optimizer(params_to_optimize, lr=lr, weight_decay=weight_decay)
+
+        moe_params = [p for n, p in model.named_parameters()
+                    if 'experts' in n.lower() or 'router' in n.lower() or 'w_gate' in n.lower() or 'w_noise' in n.lower()]
+        other_params = [p for n, p in model.named_parameters()
+                        if p.requires_grad and id(p) not in {id(x) for x in moe_params}]
+        enc_params = [p for enc in encoder.values() for p in enc.parameters() if p.requires_grad]
+
+        optim = torch.optim.Adam([
+            {'params': other_params + enc_params, 'lr': lr, 'weight_decay': weight_decay},
+            {'params': moe_params, 'lr': lr * 5, 'weight_decay': 0.0},   # 5× LR, NO weight decay
+        ])
+
 
     missing_embeddings = torch.nn.ParameterDict()
     # --- LoRA Setup ---
@@ -183,6 +196,18 @@ def train(
     encoder_grad_params = []
     for enc in encoder.values():
         encoder_grad_params.extend([p for p in enc.parameters() if p.requires_grad])
+
+    # --- MoE diagnostics: log file lives next to the checkpoint (savedir) ---
+    moe_diag_dir = os.path.dirname(savedir) if savedir and os.path.splitext(savedir)[1] else savedir
+    if not moe_diag_dir:
+        moe_diag_dir = "."
+    moe_diag_tag = os.path.splitext(os.path.basename(savedir))[0] if savedir else "run"
+    moe_diag = MoEDiagnosticsLogger(
+        log_dir=moe_diag_dir,
+        jsonl_name=f"moe_diag_{moe_diag_tag}.jsonl",
+        text_name=f"moe_diag_{moe_diag_tag}.txt",
+    )
+    moe_diag.register_hooks(model)
 
     use_wandb = bool(getattr(args, 'use_wandb', False) or getattr(args, 'wandb', False))
     wandb_run_started_here = False
@@ -265,24 +290,28 @@ def train(
                     indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys, optimizer=optim)
                 
                 if recon:
-                    out, rec = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
+                    out, rec, balance_loss = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
                     stuffs = []
                     for modal in indict:
                         stuffs.append(torch.mean(indict[modal], dim=1))
                     origs = torch.cat(stuffs, dim=1)
-                    loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs)
+                    loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs) + args.balance_loss_coef * balance_loss
                 else:
-                    out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
+                    out, balance_loss = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                     if 'PHENO' in modalities[int(ii)][0]:
                         loss=criterion[int(ii)](out, label.float().to(device))
                     elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
                         loss=criterion[int(ii)](out, label.to(device))
                     else:
                         loss=criterion[int(ii)](out, label.to(device))
+                    if balance_loss is not None:
+                        loss = loss + args.balance_loss_coef * balance_loss
                 losses += loss * train_weights[int(ii)]
             losses.backward()
             batch_model_grad_norm = _grad_l2_norm(model_grad_params)
             batch_encoder_grad_norm = _grad_l2_norm(encoder_grad_params)
+            # Log MoE-vs-encoder grad norms once per epoch (first batch)
+            moe_diag.log_grad_norms(model, ep)
             # total = 0.0
             # for p in model.parameters():
             #     if p.requires_grad and p.grad is not None:
@@ -302,6 +331,9 @@ def train(
             train_log['train/loss'] = epoch_train_loss_sum / epoch_train_steps
             train_log['train/grad_norm/model'] = epoch_model_grad_norm_sum / epoch_train_steps
             train_log['train/grad_norm/encoder'] = epoch_encoder_grad_norm_sum / epoch_train_steps
+
+        # --- MoE diagnostics: epoch-level metrics from hooks on the most recent forward ---
+        moe_diag.log_epoch(model, ep)
 
         with torch.no_grad():
             model.eval()
@@ -365,21 +397,22 @@ def train(
                         indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys)
                     
                     if recon:
-                        out, rec = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
+                        out, rec, balance_loss = model(indict=indict, task=task, use_recon=True) if args.lora else model(indict, task=task, use_recon=True)
                         stuffs = []
                         for modal in indict:
                             stuffs.append(torch.mean(indict[modal], dim=1))
                         origs = torch.cat(stuffs, dim=1)
-                        val_loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs)
+                        val_loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs) 
                     else:
-                        out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
+                        out, balance_loss = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                         if 'PHENO' in modalities[int(ii)][0]:
                             val_loss = criterion[int(ii)](out, label.float().to(device))
                         elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
                             val_loss = criterion[int(ii)](out, label.to(device))
                         else:
                             val_loss = criterion[int(ii)](out, label.to(device))
-                    
+                    if balance_loss is not None:
+                        val_loss = val_loss + args.balance_loss_coef * balance_loss
                     val_loss_task_sum += val_loss.item()
                     val_loss_task_steps += 1
                     val_loss_total_sum += val_loss.item()
@@ -428,10 +461,15 @@ def train(
 
             if accs > bestacc:
                 bestacc = accs
-                torch.save(model, savedir)
-                for ii in range(len(modalities)):
-                    task = modalities[int(ii)][0].split('_')[1]
-                    torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
+                # Hooks contain closures that cannot be pickled; drop them before save.
+                moe_diag.remove_hooks()
+                try:
+                    torch.save(model, savedir)
+                    for ii in range(len(modalities)):
+                        task = modalities[int(ii)][0].split('_')[1]
+                        torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
+                finally:
+                    moe_diag.register_hooks(model)
                 val_log['val/best_score_sum'] = float(bestacc)
         print('Model saved to ', savedir)
         if use_wandb:
@@ -478,7 +516,11 @@ def train(
                     'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
                 }
                 task_mod_key = f'{args.task}_mod'
-                if args.lora:
+                if args.transfer_moe:
+                    out_fname = f"{args.results_dir}/flame/multitask/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+                    f = open(out_fname, 'a')
+                elif args.lora:
                     out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
@@ -490,10 +532,14 @@ def train(
                     out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
+                elif args.cross_method=='flexmoe':
+                    out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+                    f = open(out_fname, 'a')
                 else:
                     if args.shared_modality_encoders:
                         if args.multitask_moe:
-                            out_fname = f"{args.results_dir}/flame/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                            out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_w_residual_scaling/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
                         else:
                             out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     else:
@@ -555,7 +601,7 @@ def train(
                         if args.modality_drop_rate > 0:
                             indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys)
                         
-                        out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
+                        out, balance_loss = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                         if 'PHENO' in modalities[int(ii)][0]:
                             logit = torch.nn.functional.sigmoid(out)
                         elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
@@ -611,6 +657,7 @@ def train(
                     wandb.log({**test_log, 'epoch': ep})
     if use_wandb and wandb_run_started_here:
         wandb.finish()
+    moe_diag.close()
     if getattentionmap:
         return rets
     return testaccs

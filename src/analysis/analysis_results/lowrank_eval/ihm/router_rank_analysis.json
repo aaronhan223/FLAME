@@ -1,0 +1,170 @@
+[
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.text.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.9408226013183594,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 7.756955892546102e-05,
+    "sv_ratio_1_2": 1.2419847249984741
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.text.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.980215072631836,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 0.00014840099902357906,
+    "sv_ratio_1_2": 1.1576298475265503
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.ts.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.848954200744629,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 0.014686410315334797,
+    "sv_ratio_1_2": 1.8006157875061035
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.ts.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.402958869934082,
+    "max_rank": 3,
+    "rank_90_energy": 2,
+    "rank_99_energy": 3,
+    "top_sv": 0.0034759477712213993,
+    "sv_ratio_1_2": 2.6100974082946777
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.1.moe.routers.text.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.93546199798584,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 8.800743671599776e-05,
+    "sv_ratio_1_2": 1.2975369691848755
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.1.moe.routers.text.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.6513822078704834,
+    "max_rank": 3,
+    "rank_90_energy": 2,
+    "rank_99_energy": 3,
+    "top_sv": 0.00013868814858142287,
+    "sv_ratio_1_2": 1.5423997640609741
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.1.moe.routers.ts.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.271730661392212,
+    "max_rank": 3,
+    "rank_90_energy": 2,
+    "rank_99_energy": 3,
+    "top_sv": 0.04166476055979729,
+    "sv_ratio_1_2": 2.8144638538360596
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.1.moe.routers.ts.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.570242404937744,
+    "max_rank": 3,
+    "rank_90_energy": 2,
+    "rank_99_energy": 3,
+    "top_sv": 0.00299566937610507,
+    "sv_ratio_1_2": 1.5744976997375488
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.2.moe.routers.text.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.991368293762207,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 0.0001010285341180861,
+    "sv_ratio_1_2": 1.1450265645980835
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.2.moe.routers.text.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.9259984493255615,
+    "max_rank": 3,
+    "rank_90_energy": 3,
+    "rank_99_energy": 3,
+    "top_sv": 0.00013482474605552852,
+    "sv_ratio_1_2": 1.0735970735549927
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.2.moe.routers.ts.w_gate",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.772928237915039,
+    "max_rank": 3,
+    "rank_90_energy": 2,
+    "rank_99_energy": 3,
+    "top_sv": 0.04609180986881256,
+    "sv_ratio_1_2": 1.2230415344238281
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.2.moe.routers.ts.w_noise",
+    "shape": [
+      128,
+      3
+    ],
+    "params": 384,
+    "eff_rank": 2.4884390830993652,
+    "max_rank": 3,
+    "rank_90_energy": 2,
+    "rank_99_energy": 3,
+    "top_sv": 0.009588220156729221,
+    "sv_ratio_1_2": 2.9786362648010254
+  }
+]

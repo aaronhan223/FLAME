@@ -18,6 +18,7 @@ from transformers import (AutoTokenizer,
                          )
 from src.crossattnperceiver import MultiModalityPerceiver, InputModality, PerceiverWrapper, CrossAttnTransformer
 from src.fusemoe import *
+from src.flexmoe import FlexMoE as FlexMoEModel
 from src.mimiciv_task_setup import setup_tasks_and_modalities
 from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder, EMBEDEncoder
@@ -166,7 +167,7 @@ def parse_args():
     parser.add_argument('--self_cross', action='store_true')
     parser.add_argument('--TS_mixup', action='store_true', help='mix up reg and irg data')
     parser.add_argument('--mixup_level', type=str, default='batch', help='mixup level: batch or batch_seq or batch_seq_feature')
-    parser.add_argument('--cross_method', type=str, default='moe', help='cross attention method: moe or self_cross or hme')
+    parser.add_argument('--cross_method', type=str, default='moe', help='cross attention method: moe or self_cross or hme or flexmoe')
 
     parser.add_argument('--fp16', action='store_true')
     parser.add_argument('--debug', action='store_true')
@@ -183,6 +184,7 @@ def parse_args():
     parser.add_argument('--results_dir', type=str, default='/cis/home/schaud35/clinical-highmmt/src/results', help='Directory to store results') 
     parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
     parser.add_argument('--linear_probe', action='store_true')
+    parser.add_argument('--transfer_moe', action='store_true', help='Load encoders and MoE model from base task checkpoint, freeze encoders and temporal pooling in MoE routers, train only MoE expert and router gate weights')
     parser.add_argument('--shared_modality_encoders', action='store_true', help='Use shared modality encoders across tasks')
     parser.add_argument('--use_wandb', action='store_true', help='Enable Weights & Biases logging for train/val/test metrics.')
     parser.add_argument('--wandb_project', type=str, default='clinical-highmmt', help='Weights & Biases project name.')
@@ -193,6 +195,7 @@ def parse_args():
     parser.add_argument("--gating_function", nargs='*', type=str, help="all gating functions: softmax, laplace, gaussian, enter at least one")
     parser.add_argument("--modality_drop_rate", default=0.0, type=float, help="Probability of dropping each modality from indict before model forward pass (keeps at least one). 0.0 = no dropping.")
     parser.add_argument("--multitask_moe", action='store_true', help="Whether to use the multitask MoE implementation in src/fusemoe_multitask.py instead of the original MoE implementation in src/sparse_moe.py. The multitask MoE allows for different gating and expert configurations per task, while the original MoE uses the same gating and expert configuration for all tasks.")
+    parser.add_argument("--balance_loss_coef", default=0.01, type=float, help="Coefficient for balance_loss term in total loss")
     args = parser.parse_args()
     return args
 
@@ -374,9 +377,9 @@ def main():
             for m in t:
                 perceiver_mod.append(all_modalities[m])
     else:
-        # Common modalities across all tasks
+        # Common modalities across all tasks (sorted for deterministic ordering)
         perceiver_mod = []
-        shared_modalities = set([m for tm in task_mods_dict[task_mod_key].split('_') for m in tm.split('-')])
+        shared_modalities = sorted(set([m for tm in task_mods_dict[task_mod_key].split('_') for m in tm.split('-')]))
         for m in shared_modalities:
             perceiver_mod.append(all_modalities[m])
     # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
@@ -429,6 +432,15 @@ def main():
             modalities=perceiver_mod,
             modalities_per_task=modalities_per_task,
             num_classes=1
+        ).to(device)
+    elif args.fusion_model in ['flexmoe']:
+        model = FlexMoEModel(
+            args,
+            device,
+            modeltype=task_mods_dict[task_mod_key],
+            modalities=perceiver_mod,
+            modalities_per_task=modalities_per_task,
+            num_classes=1,
         ).to(device)
     else:
         raise ValueError("fusion_model should be multimodalityperceiver or crossattntransformer")
@@ -512,6 +524,76 @@ def main():
             for name, param in all_encoders[task].named_parameters():
                 param.requires_grad = False
 
+    if args.transfer_moe:
+        # Load model checkpoint from base task (e.g., IHM) and transfer MoE weights
+        base_savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task}_{args.base_task_mods}_mod_drop_rate_{args.modality_drop_rate}.pt'
+        print(f"Loading base model from: {base_savedir}")
+        base_model = torch.load(base_savedir, map_location=device)
+
+        # Load compatible weights from base into the new model
+        pretrained_state_dict = base_model.state_dict()
+        model_state_dict = model.state_dict()
+        compatible_weights = {}
+        for k, v in pretrained_state_dict.items():
+            if k in model_state_dict and model_state_dict[k].shape == v.shape:
+                compatible_weights[k] = v
+        skipped_keys = [k for k in pretrained_state_dict if k not in compatible_weights]
+        if skipped_keys:
+            print(f"Skipping {len(skipped_keys)} incompatible/missing keys from base model")
+            for k in skipped_keys:
+                print(f"  - {k} {pretrained_state_dict[k].shape}")
+        new_only_keys = [k for k in model_state_dict if k not in pretrained_state_dict]
+        if new_only_keys:
+            print(f"{len(new_only_keys)} keys in new model not in base (initialized fresh)")
+            for k in new_only_keys:
+                print(f"  + {k} {model_state_dict[k].shape}")
+        model_state_dict.update(compatible_weights)
+        model.load_state_dict(model_state_dict)
+        print(f"Loaded {len(compatible_weights)} compatible keys from base model.")
+
+        # Freeze TemporalAttentionPool in MoE routers
+        for name, param in model.named_parameters():
+            if 'temporal_pool' in name:
+                param.requires_grad = False
+                print(f"  Frozen (temporal_pool): {name}")
+
+        # Load encoder checkpoint from base task; only freeze params that were loaded
+        for ii in range(len(modalities_per_task)):
+            task = modalities_per_task[int(ii)][0].split('_')[1]
+            base_task_upper = args.base_task.upper()
+            enc_path = f'{base_savedir.split(".pt")[0]}_{base_task_upper}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            print(f"Loading encoder for {task} from: {enc_path}")
+            base_encoder = torch.load(enc_path, map_location=device)
+
+            enc_state_dict = all_encoders[task].state_dict()
+            base_enc_state_dict = base_encoder.state_dict()
+            compatible_enc_weights = {}
+            for k, v in base_enc_state_dict.items():
+                if k in enc_state_dict and enc_state_dict[k].shape == v.shape:
+                    compatible_enc_weights[k] = v
+            skipped_enc_keys = [k for k in base_enc_state_dict if k not in compatible_enc_weights]
+            if skipped_enc_keys:
+                print(f"Skipping {len(skipped_enc_keys)} incompatible encoder keys for {task}")
+                for k in skipped_enc_keys:
+                    print(f"  - {k}")
+            enc_state_dict.update(compatible_enc_weights)
+            all_encoders[task].load_state_dict(enc_state_dict)
+
+            # Freeze only the encoder params that were loaded from the base task
+            for name, param in all_encoders[task].named_parameters():
+                if name in compatible_enc_weights:
+                    param.requires_grad = False
+            print(f"Encoder [{task}]: {len(compatible_enc_weights)} params loaded and frozen from {args.base_task}.")
+        
+        # Print summary of trainable vs frozen params
+        trainable_model = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        frozen_model = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+        print(f"\nModel trainable params: {trainable_model}, frozen params: {frozen_model}")
+        for task_key in all_encoders:
+            enc_trainable = sum(p.numel() for p in all_encoders[task_key].parameters() if p.requires_grad)
+            enc_frozen = sum(p.numel() for p in all_encoders[task_key].parameters() if not p.requires_grad)
+            print(f"Encoder [{task_key}] trainable: {enc_trainable}, frozen: {enc_frozen}")
+    
     if args.lora:
         # Wrap model to make it PEFT-compatible
         wrapped_model = PerceiverWrapper(model)
@@ -566,7 +648,10 @@ def main():
         args.embed_time,
         modalities_per_task
     )
-    if args.lora:
+    if args.transfer_moe:
+        savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    elif args.lora:
         savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fine_tune:
@@ -575,12 +660,15 @@ def main():
     elif args.linear_probe:
         savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    elif args.fusion_model=='flexmoe':
+        savedir = f'./checkpoints/flexmoe/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
         if args.shared_modality_encoders:
             if args.multitask_moe:
-                savedir = f'./checkpoints/flame/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_w_residual_scaling/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
             else:
-                savedir = f'./checkpoints/{args.fusion_model}/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
         else:
             savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
@@ -588,7 +676,7 @@ def main():
         torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
-            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
     
     _ = train(
         model,

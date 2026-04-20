@@ -8,7 +8,7 @@ from torch import nn
 from torch.nn import Parameter
 import torch.nn.functional as F
 from src.sparse_moe import MoE, MoEConfig
-from src.fusemoe_multitask import SeqMoE 
+from src.fusemoe_multitask import SeqMoE
 from src.fusemoe_multitask import MoEConfig as SeqMoEConfig
 from src.hme import HierarchicalMoE
 import sys
@@ -590,6 +590,17 @@ class TransformerCrossEncoderLayer(nn.Module):
         self.res_dropout = res_dropout
         self.normalize_before = True
 
+        # Learnable residual gate: α starts at 0.5 for a real balance between
+        # residual and MoE. Biasing toward MoE (e.g. α≈0.1) lets the MoE
+        # monopolize the block output and the router collapses to one expert.
+        self.residual_gate = nn.Parameter(torch.tensor(0.0))
+
+        # Normalize residual before α-weighted combination so both inputs to
+        # the gate sit at per-token norm ≈ √d. Without this, residual norms
+        # O(100-2000) dominate MoE output norms O(√d) regardless of α, which
+        # starves expert gradients and collapses the router.
+        self.pre_combine_residual_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
+
         self.pre_ffn_layer_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
         self.fc1 = nn.ModuleList([nn.Linear(self.embed_dim, 4 * self.embed_dim) for _ in range(num_modalities)])  # The "Add & Norm" part in the paper
         self.fc2 = nn.ModuleList([nn.Linear(4 * self.embed_dim, self.embed_dim) for _ in range(num_modalities)])
@@ -647,12 +658,14 @@ class TransformerCrossEncoderLayer(nn.Module):
         for mn in modality:
             m, idx = findmodalityandindex(self.modalities, mn)
             modality_idxs.append(idx)
-        residual = x_list
+        # residual = x_list
         seq_len, bs = x_list[0].shape[0], x_list[0].shape[1]
         balance_loss = None
+        assert hasattr(self, 'pre_combine_residual_norm'), "FIX NOT LOADED"
 
+        # BLOCK 1: Self-Attention
+        residual = x_list
         x_list = [l(x) for l, x in zip([self.pre_self_attn_layer_norm[i] for i in modality_idxs], x_list)]
-
         output = [l(query=x, key=x, value=x) for l, x in zip([self.self_attns[i] for i in modality_idxs], x_list)]
         # attn: output[0][0].shape -> [48, 3, 128]; attn_weights: output[0][1].shape -> [3, 48, 48]
         # filter out attn_weights
@@ -663,8 +676,8 @@ class TransformerCrossEncoderLayer(nn.Module):
         # moe or cross attn
         residual = x_list
         x_list = [l(x) for l, x in zip([self.pre_encoder_attn_layer_norm[i] for i in modality_idxs], x_list)]
-        if self.args.cross_method in ["moe", "hme"]:
-            if not self.args.multitask_moe:
+        if self.args.cross_method in ["moe", "hme", "flexmoe"]:
+            if not self.args.multitask_moe and self.args.cross_method != 'flexmoe':
                 x_mod_in = [torch.reshape(x, (bs, -1)) for x in x_list]
                 embd_len_list = [0] + list(np.cumsum([x.shape[1] for x in x_mod_in]))
                 embeddings = torch.concat(x_mod_in, dim=1)
@@ -675,11 +688,26 @@ class TransformerCrossEncoderLayer(nn.Module):
                 x_allmod_output = [torch.reshape(x, (seq_len, bs, -1)) for x in x_mod_out]
                 moe_output = [F.dropout(x, p=self.res_dropout, training=self.training) for x in x_allmod_output]
             else:
-                moe_out, balance_loss = self.moe(x_list, modality_labels=[m.lower() for m in modality])
+                moe_out, balance_loss = self.moe(
+                    x_list,
+                    modality_labels=[m.lower() for m in modality],
+                    train=self.training,
+                )
                 moe_output = [F.dropout(x, p=self.res_dropout, training=self.training) for x in moe_out]
             
-            x_list = [r + x for r, x in zip(residual, moe_output)]
+            # Store for diagnostics (read by eval_lowrank_experts hooks)
+            self._diag_residual = [r.detach() for r in residual]
+            self._diag_moe_output = [x.detach() for x in moe_output]
 
+            if hasattr(self, 'residual_gate'):
+                alpha = torch.sigmoid(self.residual_gate)
+                self._diag_alpha = alpha.detach().item()
+                residual_normed = [ln(r) for ln, r in zip([self.pre_combine_residual_norm[i] for i in modality_idxs], residual)]
+                x_list = [alpha * r + (1 - alpha) * x for r, x in zip(residual_normed, moe_output)]
+            else:
+                self._diag_alpha = None
+                x_list = [r + x for r, x in zip(residual, moe_output)]
+                # x_list = [x for x in moe_output]
         if self.args.cross_method == "self_cross":
             assert self.num_modalities == 2, 'Input modality should be 2 if using cross attention method.'
             x_txt, x_ts = x_list #proj_x_txt, proj_x_ts
@@ -690,7 +718,7 @@ class TransformerCrossEncoderLayer(nn.Module):
             x_txt_to_ts = F.dropout(x_txt_to_ts, p=self.res_dropout, training=self.training)
             x_list = [r + x for r, x in zip(residual, (x_ts_to_txt, x_txt_to_ts))]
 
-        # FNN
+        # BLOCK 3: FFN
         residual = x_list
         x_list = [l(x) for l, x in zip([self.pre_ffn_layer_norm[i] for i in modality_idxs], x_list)]
         x_list = [F.relu(l(x)) for l, x in zip([self.fc1[i] for i in modality_idxs], x_list)]
