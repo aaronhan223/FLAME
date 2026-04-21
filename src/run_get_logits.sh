@@ -1,6 +1,10 @@
-export CUDA_VISIBLE_DEVICES=6
+# export CUDA_VISIBLE_DEVICES=6
+# Get test logits from a trained checkpoint (0 epochs = load checkpoint and run test only).
+# Logs append to results_dir/get_logits_logs/get_logits_log.txt and get_logits_log.csv by default.
+# Optional: --get_logits_txt /path/to/file.txt --get_logits_csv /path/to/file.csv to choose log files.
+# Optional: --checkpoint_path /path/to/model.pt to load a specific checkpoint.
 
-python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
+python -W ignore mimiciv_tasks.py  --num_train_epochs 0 \
                 --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
                 --eval_batch_size 8 --seed 42 \
                 --gradient_accumulation_steps 16  --num_update_bert_epochs 2 --bertcount 0 \
@@ -9,7 +13,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_dim 128 \
                 --perceiver_dim 64 \
                 --model_name "bioLongformer"\
-                --task 'pheno-density'\
+                --task 'pheno-readmission'\
                 --ihm_mod 'TS-Text-CXR'\
                 --los_mod 'TS-Text-CXR'\
                 --pheno_mod 'TS-Text-CXR'\

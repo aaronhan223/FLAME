@@ -158,6 +158,127 @@ def train(
         )
         wandb_run_started_here = True
 
+    # --- 0 epochs: load checkpoint and run test-only to get logits, then log to file ---
+    if args.num_train_epochs == 0:
+        if os.path.isfile(savedir):
+            model = torch.load(savedir, map_location=device)
+            for ii in range(len(modalities)):
+                task = modalities[int(ii)][0].split('_')[1]
+                enc_path = f'{savedir.split(".pt")[0]}_{task}_encoder.pt'
+                if os.path.isfile(enc_path):
+                    encoder[task] = torch.load(enc_path, map_location=device)
+        model.eval()
+        for enc in encoder.values():
+            enc.eval()
+        task_mods_dict = {
+            'ihm_mod': args.ihm_mod, 'los_mod': args.los_mod, 'pheno_mod': args.pheno_mod,
+            'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
+            'ihm-los_mod': args.ihm_mod+'_'+args.los_mod, 'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
+            'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
+            'readmission_mod': args.rad_mod, 'mortality_mod': args.mor_mod,
+            'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
+            'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod, 'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
+            'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod, 'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
+            'pheno-mortality_mod': args.pheno_mod+'_'+args.mor_mod,
+            'pheno-readmission_mod': args.pheno_mod+'_'+args.rad_mod,
+            'pheno-risk_mod': args.pheno_mod+'_'+args.risk_mod,
+            'pheno-birads_mod': args.pheno_mod+'_'+args.birads_mod,
+            'pheno-density_mod': args.pheno_mod+'_'+args.density_mod,
+            'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
+            'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
+            'birads_mod': args.birads_mod, 'risk_mod': args.risk_mod, 'density_mod': args.density_mod,
+            'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
+            'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod, 'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
+            'ihm-density_mod': args.ihm_mod+'_'+args.density_mod, 'los-birads_mod': args.los_mod+'_'+args.birads_mod,
+            'los-risk_mod': args.los_mod+'_'+args.risk_mod, 'los-density_mod': args.los_mod+'_'+args.density_mod,
+            'mortality-risk_mod': args.mor_mod+'_'+args.risk_mod, 'mortality-birads_mod': args.mor_mod+'_'+args.birads_mod,
+            'mortality-density_mod': args.mor_mod+'_'+args.density_mod, 'readmission-birads_mod': args.rad_mod+'_'+args.birads_mod,
+            'readmission-risk_mod': args.rad_mod+'_'+args.risk_mod, 'readmission-density_mod': args.rad_mod+'_'+args.density_mod,
+            'birads-risk_mod': args.birads_mod+'_'+args.risk_mod, 'birads-density_mod': args.birads_mod+'_'+args.density_mod,
+            'risk-density_mod': args.risk_mod+'_'+args.density_mod,
+            'ihm-los-pheno-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
+            'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
+        }
+        task_mod_key = f'{args.task}_mod'
+        task_combination = f"{args.task}_{task_mods_dict.get(task_mod_key, '')}"
+        results_dir = getattr(args, 'results_dir', './results')
+        log_dir = os.path.join(results_dir, 'get_logits_logs')
+        if getattr(args, 'get_logits_txt', None):
+            log_txt = args.get_logits_txt
+        else:
+            os.makedirs(log_dir, exist_ok=True)
+            log_txt = os.path.join(log_dir, 'get_logits_log.txt')
+        if getattr(args, 'get_logits_csv', None):
+            log_csv = args.get_logits_csv
+        else:
+            os.makedirs(log_dir, exist_ok=True)
+            log_csv = os.path.join(log_dir, 'get_logits_log.csv')
+        os.makedirs(os.path.dirname(os.path.abspath(log_txt)) or '.', exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(log_csv)) or '.', exist_ok=True)
+        npy_dir = os.path.dirname(os.path.abspath(log_txt))
+        csv_header = 'task_combination,task_idx,shape,logits_npy_path\n'
+        csv_exists = os.path.isfile(log_csv)
+        with open(log_csv, 'a') as fc:
+            if not csv_exists:
+                fc.write(csv_header)
+        with open(log_txt, 'a') as ft:
+            ft.write(f"\n{'='*60}\nTask combination: {task_combination}\n")
+        with torch.no_grad():
+            for ii in tqdm(range(len(test))):
+                eval_logits = []
+                eval_labels = []
+                task = modalities[int(ii)][0].split('_')[1]
+                if args.lora:
+                    model.base_model.model.model.to_logits = model.base_model.model.model.to_logitslist[ii]
+                else:
+                    model.to_logits = model.to_logitslist[ii]
+                for jj in tqdm(test[ii]):
+                    if task in ['IHM', 'PHENO', 'LOS']:
+                        ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
+                        embeddings = encoder[task](
+                            x_ts=ts_input_sequences, x_ts_mask=ts_mask_sequences, ts_tt_list=ts_tt,
+                            input_ids_sequences=input_ids_sequences, attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time, note_time_mask_list=note_time_mask,
+                            cxr_feats=cxr_feats, cxr_time=cxr_time, cxr_time_mask=cxr_time_mask,
+                            ecg_feats=ecg_feats, ecg_time=ecg_time, ecg_time_mask=ecg_time_mask, labels=label, reg_ts=reg_ts,
+                            cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                        )
+                    elif task in ['MOR', 'RAD']:
+                        codes, types, timestamps, ages, genders, ethnicities, label = jj['codes'], jj['types'], jj['timestamps'], jj['age'], jj['gender'], jj['ethnicity'], jj[task_names[task]].long()
+                        embeddings = encoder[task](codes=codes, types=types, timestamps=timestamps, ages=ages, genders=genders, ethnicities=ethnicities, modalities=modalities[int(ii)])
+                    elif task.lower() in ['birads', 'risk', 'density']:
+                        idx, label, embed_2dcc, embed_2dmlo, embed_cc, embed_mlo, all_views = jj
+                        embeddings = encoder[task](embed_cc=embed_cc, embed_mlo=embed_mlo, embed_2dcc=embed_2dcc, embed_2dmlo=embed_2dmlo, all_views=all_views, modalities=modalities[int(ii)], task=task)
+                    indict = {}
+                    for i in range(0, len(modalities[ii])):
+                        indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                    indict = drop_modalities(indict, args.modality_drop_rate)
+                    out = model(indict=indict, task=task) if args.lora else model(indict, task=task)
+                    if 'PHENO' in modalities[int(ii)][0]:
+                        logit = torch.nn.functional.sigmoid(out)
+                    elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                        logit = torch.nn.functional.softmax(out, dim=-1)
+                    else:
+                        logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
+                    logits = logit.cpu().numpy()
+                    labels = label.cpu().numpy()
+                    eval_logits += logits.tolist()
+                    eval_labels += labels.tolist()
+                all_logits = np.array(eval_logits)
+                shape_str = str(all_logits.shape)
+                logits_npy_path = os.path.join(npy_dir, f'logits_{task_combination}_task{ii}.npy')
+                np.save(logits_npy_path, all_logits)
+                with open(log_csv, 'a') as fc:
+                    fc.write(f'"{task_combination}",{ii},"{shape_str}","{logits_npy_path}"\n')
+                with open(log_txt, 'a') as ft:
+                    ft.write(f"Task {ii} ({task}): shape={shape_str}\n")
+                    ft.write(f"  logits saved to: {logits_npy_path}\n")
+        with open(log_txt, 'a') as ft:
+            ft.write(f"{'='*60}\n")
+        print(f"Get-logits run written to {log_txt} and {log_csv}")
+        if use_wandb and wandb_run_started_here:
+            wandb.finish()
+        return None
+
     for ep in range(args.num_train_epochs):
         
         # if ep==0:
@@ -414,10 +535,16 @@ def train(
                     'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
                     'readmission_mod': args.rad_mod,
                     'mortality_mod': args.mor_mod,
+                    'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
                     'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
                     'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
                     'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
                     'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
+                    'pheno-mortality_mod': args.pheno_mod+'_'+args.mor_mod,
+                    'pheno-readmission_mod': args.pheno_mod+'_'+args.rad_mod,
+                    'pheno-risk_mod': args.pheno_mod+'_'+args.risk_mod,
+                    'pheno-birads_mod': args.pheno_mod+'_'+args.birads_mod,
+                    'pheno-density_mod': args.pheno_mod+'_'+args.density_mod,
                     'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
                     'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
                     'birads_mod': args.birads_mod,
@@ -425,6 +552,17 @@ def train(
                     'density_mod': args.density_mod,
                     'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
                     'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
+                    'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
+                    'ihm-density_mod': args.ihm_mod+'_'+args.density_mod,
+                    'los-birads_mod': args.los_mod+'_'+args.birads_mod,
+                    'los-risk_mod': args.los_mod+'_'+args.risk_mod,
+                    'los-density_mod': args.los_mod+'_'+args.density_mod,
+                    'mortality-risk_mod': args.mor_mod+'_'+args.risk_mod,
+                    'mortality-birads_mod': args.mor_mod+'_'+args.birads_mod,
+                    'mortality-density_mod': args.mor_mod+'_'+args.density_mod,
+                    'readmission-birads_mod': args.rad_mod+'_'+args.birads_mod,
+                    'readmission-risk_mod': args.rad_mod+'_'+args.risk_mod,
+                    'readmission-density_mod': args.rad_mod+'_'+args.density_mod,
                     'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
                     'birads-density_mod': args.birads_mod+'_'+args.density_mod,
                     'risk-density_mod': args.risk_mod+'_'+args.density_mod,

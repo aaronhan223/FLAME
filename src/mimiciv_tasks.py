@@ -193,6 +193,9 @@ def parse_args():
     parser.add_argument("--gating_function", nargs='*', type=str, help="all gating functions: softmax, laplace, gaussian, enter at least one")
     parser.add_argument("--modality_drop_rate", default=0.0, type=float, help="Probability of dropping each modality from indict before model forward pass (keeps at least one). 0.0 = no dropping.")
     parser.add_argument("--multitask_moe", action='store_true', help="Whether to use the multitask MoE implementation in src/fusemoe_multitask.py instead of the original MoE implementation in src/sparse_moe.py. The multitask MoE allows for different gating and expert configurations per task, while the original MoE uses the same gating and expert configuration for all tasks.")
+    parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to checkpoint .pt file. When --num_train_epochs 0, load model from this path (default: same as savedir from task/mod args).")
+    parser.add_argument("--get_logits_txt", type=str, default=None, help="File path to append get-logits run log (txt). When --num_train_epochs 0. Default: results_dir/get_logits_logs/get_logits_log.txt")
+    parser.add_argument("--get_logits_csv", type=str, default=None, help="File path to append get-logits run log (csv). When --num_train_epochs 0. Default: results_dir/get_logits_logs/get_logits_log.csv")
     args = parser.parse_args()
     return args
 
@@ -266,10 +269,16 @@ def main():
         'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
         'readmission_mod': args.rad_mod,
         'mortality_mod': args.mor_mod,
+        'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
         'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
         'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
         'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
         'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
+        'pheno-mortality_mod': args.pheno_mod+'_'+args.mor_mod,
+        'pheno-readmission_mod': args.pheno_mod+'_'+args.rad_mod,
+        'pheno-risk_mod': args.pheno_mod+'_'+args.risk_mod,
+        'pheno-birads_mod': args.pheno_mod+'_'+args.birads_mod,
+        'pheno-density_mod': args.pheno_mod+'_'+args.density_mod,
         'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
         'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
         'birads_mod': args.birads_mod,
@@ -277,6 +286,17 @@ def main():
         'density_mod': args.density_mod,
         'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
         'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
+        'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
+        'ihm-density_mod': args.ihm_mod+'_'+args.density_mod,
+        'los-birads_mod': args.los_mod+'_'+args.birads_mod,
+        'los-risk_mod': args.los_mod+'_'+args.risk_mod,
+        'los-density_mod': args.los_mod+'_'+args.density_mod,
+        'mortality-risk_mod': args.mor_mod+'_'+args.risk_mod,
+        'mortality-birads_mod': args.mor_mod+'_'+args.birads_mod,
+        'mortality-density_mod': args.mor_mod+'_'+args.density_mod,
+        'readmission-birads_mod': args.rad_mod+'_'+args.birads_mod,
+        'readmission-risk_mod': args.rad_mod+'_'+args.risk_mod,
+        'readmission-density_mod': args.rad_mod+'_'+args.density_mod,
         'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
         'birads-density_mod': args.birads_mod+'_'+args.density_mod,
         'risk-density_mod': args.risk_mod+'_'+args.density_mod,
@@ -580,6 +600,8 @@ def main():
         else:
             savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    if getattr(args, 'checkpoint_path', None) and args.num_train_epochs == 0:
+        savedir = args.checkpoint_path
     if args.num_train_epochs>0:
         torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
