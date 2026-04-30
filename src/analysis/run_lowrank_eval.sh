@@ -7,12 +7,14 @@ export CUDA_VISIBLE_DEVICES=0
 # ============================================================
 echo "===== Evaluating model with low-rank experts ====="
 python -W ignore -m src.analysis.eval_lowrank_experts \
-    --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss/multitask/mortality/mortality_T1-T2-T3-T4-T5_mod_drop_rate_0.0.pt \
+    --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0.pt \
     --encoder_path \
-        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss/multitask/mortality/mortality_T1-T2-T3-T4-T5_mod_drop_rate_0.0_MOR_mod_drop_rate_0.0_encoder.pt \
-    --ranks 0 1 2 4 8 full \
-    --output_dir /cis/home/schaud35/clinical-highmmt/src/analysis/analysis_results/lowrank_eval/flame-w-balanced-loss-ihm \
-    --task mortality \
+        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0_IHM_mod_drop_rate_0.0_encoder.pt \
+        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0_LOS_mod_drop_rate_0.0_encoder.pt \
+        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0_BIRADS_mod_drop_rate_0.0_encoder.pt \
+    --ranks 1 2 4 8 16 32 64 full \
+    --output_dir /cis/home/schaud35/clinical-highmmt/src/analysis/analysis_results/lowrank_eval \
+    --task 'ihm-los-birads' \
     --ihm_mod 'TS-Text' \
     --los_mod 'TS-CXR' \
     --pheno_mod 'TS-Text-CXR' \
@@ -33,14 +35,17 @@ python -W ignore -m src.analysis.eval_lowrank_experts \
     --num_heads 8 --embed_time 64 --tt_max 48 --tt_max_eicu 1 \
     --TS_mixup --mixup_level 'batch' \
     --cross_method 'moe' --fp16 --reg_ts \
-    --balance_loss_coef 0.5 \
+    --balance_loss_coef 1.0 \
+    --alpha 'const_0.0' \
     --fusion_model 'fusemoe' \
-    --num_of_experts 3 5 --top_k 2 4 \
+    --num_of_experts 5 --top_k 2 4 \
     --router_type 'joint' --gating_function "laplace" \
     --use_pt_text_embeddings --shared_modality_encoders \
     --modality_drop_rate 0.0 \
-    --num_train_epochs 0 
-    # --multitask_moe 
+    --num_train_epochs 0 \
+    --multitask_moe \
+    --lr 0.001 \
+    --weight_decay 0.1
 
 # echo ""
 # echo "===== Evaluating LOS model with low-rank experts ====="

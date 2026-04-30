@@ -573,16 +573,18 @@ class MULTCrossModel(nn.Module):
         
         # last_hs_proj = self.proj2(F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training))
         
-        if isinstance(self.proj1, nn.ModuleDict):
-            last_hs_proj = F.dropout(F.relu(self.proj1[task](last_hs)), p=self.dropout, training=self.training)
-        else:
-            last_hs_proj = F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training)
-        if isinstance(self.proj2, nn.ModuleDict):
-            last_hs_proj = self.proj2[task](last_hs_proj)
-        else:
-            last_hs_proj = self.proj2(last_hs_proj)
+        # if isinstance(self.proj1, nn.ModuleDict):
+        #     last_hs_proj = F.dropout(F.relu(self.proj1[task](last_hs)), p=self.dropout, training=self.training)
+        # else:
+        #     last_hs_proj = F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training)
+        # if isinstance(self.proj2, nn.ModuleDict):
+        #     last_hs_proj = self.proj2[task](last_hs_proj)
+        # else:
+        #     last_hs_proj = self.proj2(last_hs_proj)
         
-        last_hs_proj += last_hs
+        # last_hs_proj += last_hs
+        
+        last_hs_proj = last_hs
         if get_pre_logits or get_latent or get_catted:
             return last_hs_proj
         

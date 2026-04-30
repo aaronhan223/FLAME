@@ -202,20 +202,20 @@ class TemporalExpertMLP(nn.Module):
         # fc2 starts near zero so MoE ≈ no-op → residual carries signal early;
         # each expert gets a unique small perturbation so the router has a
         # non-trivial decision from step 1 and per-expert gradients differ.
-        with torch.no_grad():
-            g = torch.Generator().manual_seed(1337 + int(expert_idx))
-            noise_scale = 1e-3 / (int(expert_idx) + 1)
-            self.fc2.weight.copy_(
-                torch.randn(self.fc2.weight.shape, generator=g) * noise_scale
-            )
-            nn.init.zeros_(self.fc2.bias)
-            # Perturb fc1 gain per-expert so the hidden representation each
-            # expert produces differs, giving the gate distinct signals.
-            centered = int(expert_idx) - (int(num_experts) - 1) / 2.0
-            gain = 1.0 + 0.05 * centered
-            self.fc1.weight.mul_(gain)
-        print(f"[expert {expert_idx}/{num_experts}] fc2.weight.std={self.fc2.weight.std():.6f}, "
-        f"fc2.bias.abs().max()={self.fc2.bias.abs().max():.6f}")
+        # with torch.no_grad():
+        #     g = torch.Generator().manual_seed(1337 + int(expert_idx))
+        #     noise_scale = 1e-3 / (int(expert_idx) + 1)
+        #     self.fc2.weight.copy_(
+        #         torch.randn(self.fc2.weight.shape, generator=g) * noise_scale
+        #     )
+        #     nn.init.zeros_(self.fc2.bias)
+        #     # Perturb fc1 gain per-expert so the hidden representation each
+        #     # expert produces differs, giving the gate distinct signals.
+        #     centered = int(expert_idx) - (int(num_experts) - 1) / 2.0
+        #     gain = 1.0 + 0.05 * centered
+        #     self.fc1.weight.mul_(gain)
+        # print(f"[expert {expert_idx}/{num_experts}] fc2.weight.std={self.fc2.weight.std():.6f}, "
+        # f"fc2.bias.abs().max()={self.fc2.bias.abs().max():.6f}")
 
     def forward(self, x):
         """
@@ -424,7 +424,7 @@ class SeqMoE(nn.Module):
 
         # Bounds MoE output magnitude so it can't steamroll the residual
         # regardless of how large expert weights grow.
-        self.output_norm = nn.LayerNorm(config.embed_dim)
+        # self.output_norm = nn.LayerNorm(config.embed_dim)
 
     def _get_router(self, modality_label):
         """Look up the router for a modality type, with fallback."""
@@ -542,7 +542,7 @@ class SeqMoE(nn.Module):
 
             combined = dispatcher.combine(expert_outputs)
             # combined: [bs, seq_len, D]
-            combined = self.output_norm(combined)
+            # combined = self.output_norm(combined)
 
             output_list.append(combined.transpose(0, 1))  # [seq_len, bs, D]
 

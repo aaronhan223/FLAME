@@ -501,6 +501,7 @@ class TransformerCrossEncoder(nn.Module):
 
         self.normalize = True
         if self.normalize:
+            self.per_modality_layer_norm = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_modalities)])
             self.layer_norm = nn.ModuleList([nn.LayerNorm(embed_dim) for _ in range(num_modalities)])
 
     def forward(self, x_in_list, modality):
@@ -527,12 +528,13 @@ class TransformerCrossEncoder(nn.Module):
             modality_idxs.append(idx)
         x_list = [self.embed_scale * x_in for x_in in x_in_list]
         
-        if self.q_seq_len_1 is not None:
-            for length in lengths:
-                positions.append(torch.tensor(torch.arange(length),dtype=torch.long).to(self.device))
-            x_list = [l(position_x).unsqueeze(0).transpose(0,1) + x for l, x, position_x in zip([self.embed_positions_q[i] for i in modality_idxs], x_list, positions)]
-              # Add positional embedding
-            x_list = [F.dropout(x, p=self.dropout, training=self.training) for x in x_list]
+        # if self.q_seq_len_1 is not None:
+        #     for length in lengths:
+        #         positions.append(torch.tensor(torch.arange(length),dtype=torch.long).to(self.device))
+        #     x_list = [l(position_x).unsqueeze(0).transpose(0,1) + x for l, x, position_x in zip([self.embed_positions_q[i] for i in modality_idxs], x_list, positions)]
+        #       # Add positional embedding
+        #     x_list = [F.dropout(x, p=self.dropout, training=self.training) for x in x_list]
+        x_list = [self.per_modality_layer_norm[i](x) for i, x in zip(modality_idxs, x_list)]
         # encoder layers
         for layer in self.layers:
             x_list, balance_loss = layer(x_list, modality) #proj_x_txt, proj_x_ts
@@ -593,13 +595,18 @@ class TransformerCrossEncoderLayer(nn.Module):
         # Learnable residual gate: α starts at 0.5 for a real balance between
         # residual and MoE. Biasing toward MoE (e.g. α≈0.1) lets the MoE
         # monopolize the block output and the router collapses to one expert.
-        self.residual_gate = nn.Parameter(torch.tensor(0.0))
+        if 'const' in args.alpha:
+            self.residual_gate = nn.Parameter(torch.tensor(float(args.alpha.split('const_')[1])), requires_grad=False)
+        elif args.alpha == '':
+            self.residual_gate = None
+        else:
+            self.residual_gate = nn.Parameter(torch.tensor(float(args.alpha)))
 
         # Normalize residual before α-weighted combination so both inputs to
         # the gate sit at per-token norm ≈ √d. Without this, residual norms
         # O(100-2000) dominate MoE output norms O(√d) regardless of α, which
         # starves expert gradients and collapses the router.
-        self.pre_combine_residual_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
+        # self.pre_combine_residual_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
 
         self.pre_ffn_layer_norm = nn.ModuleList([nn.LayerNorm(self.embed_dim) for _ in range(num_modalities)])
         self.fc1 = nn.ModuleList([nn.Linear(self.embed_dim, 4 * self.embed_dim) for _ in range(num_modalities)])  # The "Add & Norm" part in the paper
@@ -661,7 +668,7 @@ class TransformerCrossEncoderLayer(nn.Module):
         # residual = x_list
         seq_len, bs = x_list[0].shape[0], x_list[0].shape[1]
         balance_loss = None
-        assert hasattr(self, 'pre_combine_residual_norm'), "FIX NOT LOADED"
+        # assert hasattr(self, 'pre_combine_residual_norm'), "FIX NOT LOADED"
 
         # BLOCK 1: Self-Attention
         residual = x_list
@@ -671,7 +678,7 @@ class TransformerCrossEncoderLayer(nn.Module):
         # filter out attn_weights
         x_list = [x for x, _ in output]
         x_list = [F.dropout(x, p=self.res_dropout, training=self.training) for x in x_list]
-        x_list = [r + x for r, x in zip(residual, x_list)]
+        # x_list = [r + x for r, x in zip(residual, x_list)]
 
         # moe or cross attn
         residual = x_list
@@ -699,13 +706,17 @@ class TransformerCrossEncoderLayer(nn.Module):
             self._diag_residual = [r.detach() for r in residual]
             self._diag_moe_output = [x.detach() for x in moe_output]
 
-            if hasattr(self, 'residual_gate'):
-                alpha = torch.sigmoid(self.residual_gate)
+            if self.residual_gate is not None:
+                if self.residual_gate.requires_grad:
+                    alpha = torch.sigmoid(self.residual_gate)
+                else:
+                    alpha = self.residual_gate
                 self._diag_alpha = alpha.detach().item()
-                residual_normed = [ln(r) for ln, r in zip([self.pre_combine_residual_norm[i] for i in modality_idxs], residual)]
-                x_list = [alpha * r + (1 - alpha) * x for r, x in zip(residual_normed, moe_output)]
+                # residual_normed = [ln(r) for ln, r in zip([self.pre_combine_residual_norm[i] for i in modality_idxs], residual)]
+                x_list = [alpha * r + (1 - alpha) * x for r, x in zip(residual, moe_output)]
             else:
                 self._diag_alpha = None
+                # residual_normed = [ln(r) for ln, r in zip([self.pre_combine_residual_norm[i] for i in modality_idxs], residual)]
                 x_list = [r + x for r, x in zip(residual, moe_output)]
                 # x_list = [x for x in moe_output]
         if self.args.cross_method == "self_cross":
@@ -719,13 +730,13 @@ class TransformerCrossEncoderLayer(nn.Module):
             x_list = [r + x for r, x in zip(residual, (x_ts_to_txt, x_txt_to_ts))]
 
         # BLOCK 3: FFN
-        residual = x_list
-        x_list = [l(x) for l, x in zip([self.pre_ffn_layer_norm[i] for i in modality_idxs], x_list)]
-        x_list = [F.relu(l(x)) for l, x in zip([self.fc1[i] for i in modality_idxs], x_list)]
-        x_list = [F.dropout(x, p=self.relu_dropout, training=self.training) for x in x_list]
-        x_list = [l(x) for l, x in zip([self.fc2[i] for i in modality_idxs], x_list)]
-        x_list = [F.dropout(x, p=self.res_dropout, training=self.training) for x in x_list]
-        x_list = [r + x  for r, x in zip(residual, x_list) ]
+        # residual = x_list
+        # x_list = [l(x) for l, x in zip([self.pre_ffn_layer_norm[i] for i in modality_idxs], x_list)]
+        # x_list = [F.relu(l(x)) for l, x in zip([self.fc1[i] for i in modality_idxs], x_list)]
+        # x_list = [F.dropout(x, p=self.relu_dropout, training=self.training) for x in x_list]
+        # x_list = [l(x) for l, x in zip([self.fc2[i] for i in modality_idxs], x_list)]
+        # x_list = [F.dropout(x, p=self.res_dropout, training=self.training) for x in x_list]
+        # x_list = [r + x  for r, x in zip(residual, x_list) ]
         return x_list, balance_loss
 
 

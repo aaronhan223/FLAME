@@ -1,15 +1,15 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=0
 
 python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
                 --eval_batch_size 8 --seed 42 \
                 --gradient_accumulation_steps 16  --num_update_bert_epochs 2 --bertcount 0 \
                 --ts_learning_rate 0.0004 --txt_learning_rate 0.00002 \
-                --notes_order 'Last' --num_of_notes 5 --max_length 1024 --layers 3\
+                --notes_order 'Last' --num_of_notes 5 --max_length 1024 --layers 1 --cross_layers 1\
                 --embed_dim 128 \
                 --perceiver_dim 64 \
-                --model_name "bioLongformer"\
-                --task 'ihm'\
+                --model_name "bioLongformer" \
+                --task 'birads' \
                 --ihm_mod 'TS-Text'\
                 --los_mod 'TS-CXR'\
                 --pheno_mod 'TS-Text-CXR'\
@@ -25,22 +25,25 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_time 64\
                 --tt_max 48\
                 --tt_max_eicu 1\
-                --TS_mixup\
+                --TS_mixup \
                 --mixup_level 'batch'\
                 --cross_method 'moe'\
                 --fp16 \
                 --reg_ts \
-                --balance_loss_coef 5.0 \
+                --balance_loss_coef 1.0 \
                 --fusion_model 'fusemoe' \
-                --num_of_experts 16 \
+                --num_of_experts 5 \
                 --top_k 2 4 \
                 --router_type 'joint' \
                 --gating_function "laplace" \
                 --use_pt_text_embeddings \
                 --shared_modality_encoders \
                 --modality_drop_rate 0.0 \
-                --multitask_moe 
-                # --use_wandb \
+                --multitask_moe \
+                --use_wandb \
+                --alpha 'const_0.0' \
+                --lr 0.0001 \
+                --weight_decay 0.1 \
                 # --wandb_project 'clinical-highmmt' 
                 # --linear_probe \
                 # --base_task_mods 'TS-Text-CXR' \

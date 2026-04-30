@@ -73,6 +73,11 @@ def parse_args():
     parser.add_argument( "--model_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
+        "--alpha",
+        type=str,
+        help="Alpha value for the residual gate."
+    )
+    parser.add_argument(
         "--train_bs_mimic",
         type=int,
         default=8,
@@ -120,7 +125,8 @@ def parse_args():
         help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
 
-    parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay to use.")
+    parser.add_argument("--weight_decay", type=float, default=0.001, help="Weight decay to use.")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate to use.")
     parser.add_argument(
         "--lr_scheduler_type",
         type=str,
@@ -281,6 +287,7 @@ def main():
         'density_mod': args.density_mod,
         'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
         'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
+        'ihm-los-birads_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.birads_mod,
         'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
         'birads-density_mod': args.birads_mod+'_'+args.density_mod,
         'risk-density_mod': args.risk_mod+'_'+args.density_mod,
@@ -634,10 +641,14 @@ def main():
     
     # print([(n,p.shape) for n,p in model.named_parameters()])
     # exit()
-    setting = '{}-{}-seed{}-Mbs{}-Ebs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
+    setting = '{}-{}-seed{}-balance_loss_coeff{}-alpha{}-lr{}-wd{}-Mbs{}-Ebs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
         args.task,
         modeltype,
         args.seed,
+        args.balance_loss_coef,
+        args.alpha,
+        args.lr,
+        args.weight_decay,
         args.train_bs_mimic,
         args.train_bs_eicu,
         args.num_train_epochs,
@@ -666,11 +677,11 @@ def main():
     else:
         if args.shared_modality_encoders:
             if args.multitask_moe:
-                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_w_residual_scaling/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
             else:
-                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         else:
-            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
         torch.save(model,savedir)
@@ -689,10 +700,10 @@ def main():
         all_encoders,
         setting,
         criterion=criterion,
-        lr=0.0008,
+        lr=args.lr,
         device=device,
         train_weights=train_weights,
-        weight_decay=0.001    
+        weight_decay=args.weight_decay,    
     )
     print('Experiment done!')
 

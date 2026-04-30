@@ -162,6 +162,7 @@ cython_debug/
 #.idea/
 
 /src/checkpoints
+/checkpoints
 /src/result.txt
 /src/datasets/eicu/physionet.org
 /src/datasets/eicu/processed
@@ -176,3 +177,4 @@ cython_debug/
 *.jsonl
 *.txt
 /src/wandb
+/wandb

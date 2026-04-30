@@ -1,0 +1,114 @@
+[
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dcc.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 2.231442928314209,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 3,
+    "top_sv": 0.33426064252853394,
+    "sv_ratio_1_2": 8.624258041381836
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dcc.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.8515512943267822,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 2,
+    "top_sv": 0.8023220896720886,
+    "sv_ratio_1_2": 11.16740608215332
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dmlo.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.9277818202972412,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.5254684090614319,
+    "sv_ratio_1_2": 15.751482009887695
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dmlo.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.8260200023651123,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.7163676619529724,
+    "sv_ratio_1_2": 13.65640640258789
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cc.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.830465316772461,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.5077128410339355,
+    "sv_ratio_1_2": 16.9298038482666
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cc.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.856941819190979,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.7059221267700195,
+    "sv_ratio_1_2": 13.042481422424316
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.mlo.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.7937654256820679,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.5321218371391296,
+    "sv_ratio_1_2": 18.184993743896484
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.mlo.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.8458263874053955,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 2,
+    "top_sv": 0.7117189168930054,
+    "sv_ratio_1_2": 11.2266263961792
+  }
+]

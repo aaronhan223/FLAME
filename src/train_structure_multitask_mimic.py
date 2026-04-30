@@ -8,7 +8,7 @@ import pdb
 from peft import LoraConfig, get_peft_model, TaskType
 import os
 from src.utils import *
-from src.analysis.moe_diagnostics import MoEDiagnosticsLogger
+from src.analysis.moe_diagnostics import MoEDiagnosticsLogger, LayerwiseGradLogger
 
 try:
     import wandb
@@ -148,9 +148,9 @@ def train(
                         if p.requires_grad and id(p) not in {id(x) for x in moe_params}]
         enc_params = [p for enc in encoder.values() for p in enc.parameters() if p.requires_grad]
 
-        optim = torch.optim.Adam([
+        optim = torch.optim.AdamW([
             {'params': other_params + enc_params, 'lr': lr, 'weight_decay': weight_decay},
-            {'params': moe_params, 'lr': lr * 5, 'weight_decay': 0.0},   # 5× LR, NO weight decay
+            {'params': moe_params, 'lr': lr, 'weight_decay': weight_decay},   # 5× LR, NO weight decay
         ])
 
 
@@ -202,12 +202,6 @@ def train(
     if not moe_diag_dir:
         moe_diag_dir = "."
     moe_diag_tag = os.path.splitext(os.path.basename(savedir))[0] if savedir else "run"
-    moe_diag = MoEDiagnosticsLogger(
-        log_dir=moe_diag_dir,
-        jsonl_name=f"moe_diag_{moe_diag_tag}.jsonl",
-        text_name=f"moe_diag_{moe_diag_tag}.txt",
-    )
-    moe_diag.register_hooks(model)
 
     use_wandb = bool(getattr(args, 'use_wandb', False) or getattr(args, 'wandb', False))
     wandb_run_started_here = False
@@ -215,13 +209,43 @@ def train(
         print("[warn] wandb logging requested but wandb is not installed. Continuing without wandb.")
         use_wandb = False
     if use_wandb and wandb.run is None:
+        # Map short task names to their mod arg names (e.g. mortality -> mor_mod)
+        _task_to_mod_arg = {
+            'ihm': 'ihm_mod', 'los': 'los_mod', 'pheno': 'pheno_mod',
+            'mortality': 'mor_mod', 'readmission': 'rad_mod',
+            'birads': 'birads_mod', 'risk': 'risk_mod', 'density': 'density_mod',
+        }
+        mods_str = "_".join([
+            getattr(args, _task_to_mod_arg.get(t, f"{t}_mod"), "?")
+            for t in args.task.split("-")
+        ])
+        default_run_name = (
+            f"{args.fusion_model}_{args.task}_{mods_str}"
+            f"_balance_coeff_{args.balance_loss_coef}"
+            f"_num_experts_{args.num_of_experts}_multitask_run"
+        )
         wandb.init(
             entity='shravan25-jhu',
             project=getattr(args, 'wandb_project', 'clinical-highmmt'),
-            name=getattr(args, 'wandb_run_name', f'{args.fusion_model}_{args.task}_{"_".join([getattr(args, f"{t}_mod") for t in args.task.split("-")])}_multitask_run'),
+            name=getattr(args, 'wandb_run_name', None) or default_run_name,
             config=vars(args) if hasattr(args, '__dict__') else None
         )
         wandb_run_started_here = True
+
+    _wandb_for_loggers = wandb if use_wandb else None
+    moe_diag = MoEDiagnosticsLogger(
+        log_dir=moe_diag_dir,
+        jsonl_name=f"moe_diag_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.jsonl",
+        text_name=f"moe_diag_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.txt",
+        wandb_run=_wandb_for_loggers,
+    )
+    moe_diag.register_hooks(model)
+    layerwise_grad_logger = LayerwiseGradLogger(
+        log_dir=moe_diag_dir,
+        model_jsonl=f"layerwise_grads_model_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.jsonl",
+        encoder_jsonl=f"layerwise_grads_encoder_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.jsonl",
+        wandb_run=_wandb_for_loggers,
+    )
 
     for ep in range(args.num_train_epochs):
         
@@ -312,6 +336,7 @@ def train(
             batch_encoder_grad_norm = _grad_l2_norm(encoder_grad_params)
             # Log MoE-vs-encoder grad norms once per epoch (first batch)
             moe_diag.log_grad_norms(model, ep)
+            layerwise_grad_logger.log(model, encoder, ep)
             # total = 0.0
             # for p in model.parameters():
             #     if p.requires_grad and p.grad is not None:
@@ -509,6 +534,7 @@ def train(
                     'density_mod': args.density_mod,
                     'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
                     'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
+                    'ihm-los-birads_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.birads_mod,
                     'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
                     'birads-density_mod': args.birads_mod+'_'+args.density_mod,
                     'risk-density_mod': args.risk_mod+'_'+args.density_mod,
@@ -533,17 +559,17 @@ def train(
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
                 elif args.cross_method=='flexmoe':
-                    out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
                 else:
                     if args.shared_modality_encoders:
                         if args.multitask_moe:
-                            out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_w_residual_scaling/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                            out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
                         else:
-                            out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                            out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     else:
-                        out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                        out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
                     os.makedirs(os.path.dirname(out_fname), exist_ok=True)
                     f = open(out_fname, 'a')
                 f.write(f"\n################## Epoch {ep} ##################\n")

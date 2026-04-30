@@ -418,11 +418,12 @@ def diagnose_expert_contribution(model, encoder, test, modalities, args, device,
         expert_means = {}
         for eidx in expert_idxs:
             outs = experts_dict[eidx]
-            if outs:
+            nonempty = [o for o in outs if len(o) > 0]
+            if nonempty:
                 # Outputs vary in size across batches; truncate to common min length
-                min_size = min(len(o) for o in outs if len(o) > 0)
+                min_size = min(len(o) for o in nonempty)
                 if min_size > 0:
-                    expert_means[eidx] = torch.stack([o[:min_size] for o in outs if len(o) > 0]).mean(dim=0)
+                    expert_means[eidx] = torch.stack([o[:min_size] for o in nonempty]).mean(dim=0)
 
         # Pairwise cosine similarity between expert mean outputs
         for i in range(len(expert_idxs)):
@@ -517,6 +518,239 @@ def count_expert_params(model, rank=None):
                 lowrank_params += numel
 
     return full_params, lowrank_params, details
+
+
+def derive_run_subdir(model_path):
+    """Extract the run-identifying sub-path from a checkpoint path.
+
+    Mirrors the directory structure under `checkpoints/` so analysis output
+    lands at the same relative location as the source checkpoint, e.g.
+        .../checkpoints/flame_w_balanced_loss_1.0/.../birads_cc-mlo_lr1e-4/foo.pt
+        -> flame_w_balanced_loss_1.0/.../birads_cc-mlo_lr1e-4
+
+    Falls back to the immediate parent directory name if `checkpoints` is not
+    in the path components.
+    """
+    parent = os.path.dirname(os.path.abspath(model_path))
+    parts = parent.split(os.sep)
+    if 'checkpoints' in parts:
+        idx = parts.index('checkpoints')
+        tail = parts[idx + 1:]
+        if tail:
+            return os.path.join(*tail)
+    return os.path.basename(parent)
+
+
+def categorize_layer(name):
+    """Bucket a state_dict key into a module category by walking its dotted path.
+
+    Specific module types (experts, router, attention) take precedence; anything
+    that doesn't match a keyword falls back to the top-level module name so
+    every layer ends up in some plot rather than getting silently dropped.
+    """
+    parts = name.split('.')
+    parts_set = set(parts)
+
+    if 'experts' in parts_set:
+        return 'experts'
+    if parts_set & {'w_gate', 'w_noise', 'gate', 'routers', 'router'}:
+        return 'router'
+    if 'cross_attn' in parts_set or 'crossattn' in name.lower():
+        return 'cross_attention'
+    if 'self_attn' in parts_set or 'selfattn' in name.lower():
+        return 'self_attention'
+    if parts_set & {'to_logits', 'to_logitslist'}:
+        return 'output_head'
+    if any('embed' in p.lower() for p in parts):
+        return 'embedding'
+    if parts_set & {'linear1', 'linear2', 'fc1', 'fc2', 'mlp', 'ffn'}:
+        return 'ffn'
+    return parts[0] if parts else 'other'
+
+
+def _trim_common_prefix(names):
+    """Strip the longest dotted common prefix shared by all names, for cleaner labels."""
+    if len(names) <= 1:
+        return names
+    prefix = os.path.commonprefix(names)
+    if '.' in prefix:
+        prefix = prefix.rsplit('.', 1)[0] + '.'
+        return [n[len(prefix):] for n in names]
+    return names
+
+
+def plot_singular_value_spectrum(model, output_dir):
+    """Plot SV spectrum heatmaps, one per detected module category.
+
+    For each 2D weight matrix (Conv weights [out,in,k] are flattened to
+    [out, in*k] first), compute singular values and group by `categorize_layer`.
+    Each heatmap: rows = layers in that category, cols = SV index up to the
+    max rank in that group, NaN-padded for layers with a smaller max rank.
+    Cell color = singular value (log scale).
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import LogNorm
+    except ImportError:
+        print("matplotlib not available, skipping SV spectrum plot")
+        return
+
+    sd = model.state_dict()
+    layers_by_category = {}
+
+    for key in sorted(sd):
+        if not key.endswith('.weight'):
+            continue
+        W = sd[key]
+        if W.dim() < 2:
+            continue
+        if W.dim() == 3:
+            out_c, in_c, ks = W.shape
+            W2d = W.reshape(out_c, in_c * ks)
+        elif W.dim() == 2:
+            W2d = W
+        else:
+            continue
+        try:
+            S = torch.linalg.svdvals(W2d.float().cpu()).numpy()
+        except Exception as e:
+            print(f"  SVD failed for {key}: {e}")
+            continue
+        layers_by_category.setdefault(categorize_layer(key), []).append((key, S))
+
+    if not layers_by_category:
+        print("No 2D weight matrices found for SV spectrum.")
+        return
+
+    all_sv_data = {}
+    for category in sorted(layers_by_category):
+        layers = layers_by_category[category]
+        max_rank = max(len(s) for _, s in layers)
+        n_layers = len(layers)
+        matrix = np.full((n_layers, max_rank), np.nan)
+        for i, (_, s) in enumerate(layers):
+            matrix[i, :len(s)] = s
+
+        finite = matrix[np.isfinite(matrix) & (matrix > 0)]
+        vmin = max(float(finite.min()), 1e-8) if finite.size > 0 else 1e-8
+        vmax = float(finite.max()) if finite.size > 0 else 1.0
+
+        fig_height = max(3.0, min(n_layers * 0.22, 30.0))
+        fig, ax = plt.subplots(figsize=(12, fig_height))
+        im = ax.imshow(matrix, aspect='auto', cmap='viridis',
+                       norm=LogNorm(vmin=vmin, vmax=vmax),
+                       interpolation='nearest')
+        ax.set_xlabel(f'Singular-value index (max rank = {max_rank})')
+        ax.set_ylabel('Layer')
+        ax.set_title(f'SV Spectrum: {category} ({n_layers} layers)')
+        ax.set_yticks(range(n_layers))
+        short_names = _trim_common_prefix([n for n, _ in layers])
+        ax.set_yticklabels(short_names, fontsize=6)
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label('Singular value (log scale)')
+        plt.tight_layout()
+
+        save_path = os.path.join(output_dir, f'singular_value_spectrum_{category}.png')
+        plt.savefig(save_path, dpi=150)
+        plt.close()
+        print(f"  SV spectrum [{category}] ({n_layers} layers) saved: {save_path}")
+
+        all_sv_data[category] = {n: s.tolist() for n, s in layers}
+
+    json_path = os.path.join(output_dir, 'singular_value_spectrum.json')
+    with open(json_path, 'w') as f:
+        json.dump(all_sv_data, f, indent=2)
+    print(f"  SV spectrum data saved: {json_path}")
+
+
+def plot_expert_energy_curves(model, output_dir):
+    """Plot cumulative spectral energy vs rank for every expert weight matrix.
+
+    For each expert layer, computes E(k) = 100 * sum(S[:k]**2) / sum(S**2)
+    where S are singular values sorted descending. The curve answers: "what
+    fraction of this expert's spectral energy does a rank-k truncation
+    capture?". Conv weights [out, in, ks] are flattened to [out, in*ks] first.
+    Reference lines mark 90% and 99% energy thresholds.
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not available, skipping expert energy curves")
+        return
+
+    sd = model.state_dict()
+    curves = []  # (name, cumulative_energy_pct)
+
+    for key in sorted(sd):
+        if not key.endswith('.weight'):
+            continue
+        if '.moe.experts.' not in key:
+            continue
+        W = sd[key]
+        if W.dim() < 2:
+            continue
+        if W.dim() == 3:
+            out_c, in_c, ks = W.shape
+            W2d = W.reshape(out_c, in_c * ks)
+        elif W.dim() == 2:
+            W2d = W
+        else:
+            continue
+        try:
+            S = torch.linalg.svdvals(W2d.float().cpu()).numpy()
+        except Exception as e:
+            print(f"  SVD failed for {key}: {e}")
+            continue
+        sq = S ** 2
+        total = float(sq.sum())
+        if total <= 0:
+            continue
+        # Prepend 0 so the curve starts at (k=0, energy=0%) and ends at
+        # (k=len(S), energy=100%).
+        cum = np.concatenate(([0.0], np.cumsum(sq))) / total * 100.0
+        curves.append((key, cum))
+
+    if not curves:
+        print("No expert weight matrices found for energy curves.")
+        return
+
+    short_names = _trim_common_prefix([n for n, _ in curves])
+    n = len(curves)
+    show_per_curve_labels = n <= 30
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    cmap = plt.get_cmap('viridis')
+    for i, ((_, cum), short) in enumerate(zip(curves, short_names)):
+        color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
+        ax.plot(range(len(cum)), cum, color=color, alpha=0.6, linewidth=1.0,
+                label=short if show_per_curve_labels else None)
+
+    ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% energy')
+    ax.axhline(99, color='red', linestyle=':', alpha=0.5, label='99% energy')
+
+    ax.set_xlabel('Rank K')
+    ax.set_ylabel('% Cumulative Energy in Top-K Singular Values')
+    ax.set_title(f'Expert Spectral Energy vs Rank ({n} layers)')
+    ax.set_ylim(0, 105)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=6 if show_per_curve_labels else 9,
+              loc='lower right',
+              ncol=2 if show_per_curve_labels else 1)
+    plt.tight_layout()
+
+    save_path = os.path.join(output_dir, 'expert_energy_curves.png')
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"  Expert energy curves saved: {save_path}")
+
+    json_path = os.path.join(output_dir, 'expert_energy_curves.json')
+    with open(json_path, 'w') as f:
+        json.dump({name: cum.tolist() for name, cum in curves}, f, indent=2)
+    print(f"  Expert energy data saved: {json_path}")
 
 
 def compute_router_ranks(model):
@@ -834,8 +1068,25 @@ def main():
             f"Provide either 1 (shared) or {len(task_keys)} encoder paths."
         )
 
+    # --- Mirror checkpoint dir structure under output_dir ---
+    run_subdir = derive_run_subdir(extra_args.model_path)
+    extra_args.output_dir = os.path.join(extra_args.output_dir, run_subdir)
+    print(f"Analysis output directory: {extra_args.output_dir}")
+
     # --- Evaluate at each rank ---
     os.makedirs(extra_args.output_dir, exist_ok=True)
+
+    # --- Singular-value spectrum across all 2D layers (pre-truncation) ---
+    print(f"\n{'='*60}")
+    print("  Singular-Value Spectrum")
+    print(f"{'='*60}")
+    plot_singular_value_spectrum(model, extra_args.output_dir)
+
+    # --- Cumulative spectral energy vs rank for expert layers ---
+    print(f"\n{'='*60}")
+    print("  Expert Spectral Energy vs Rank")
+    print(f"{'='*60}")
+    plot_expert_energy_curves(model, extra_args.output_dir)
 
     # Parse ranks
     rank_values = []
