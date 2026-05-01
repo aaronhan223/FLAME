@@ -1,0 +1,282 @@
+{
+  "1": {
+    "IHM": {
+      "auc": 0.4388739317294867,
+      "auprc": 0.1446102217933443,
+      "f1": 0.0,
+      "accuracy": 0.8404118404118404,
+      "primary_metric": 0.4388739317294867,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.6521815314526022,
+      "auprc": 0.5303127072007582,
+      "f1": 0.3434343434343434,
+      "accuracy": 0.5817245817245817,
+      "primary_metric": 0.6521815314526022,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.8706156743058331,
+      "ave_auc_macro": 0.5634796864260949,
+      "ave_auc_weighted": 0.683872308597449,
+      "ave_auprc_micro": 0.7553965503568756,
+      "ave_auprc_macro": 0.42466071651249915,
+      "ave_auprc_weighted": 0.6899290489372099,
+      "macro_f1": 0.3821907016876076,
+      "accuracy": 0.7441182818907836,
+      "primary_metric": 0.5634796864260949,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 8335,
+      "compression_pct": 97.98
+    }
+  },
+  "2": {
+    "IHM": {
+      "auc": 0.6725287753791435,
+      "auprc": 0.22788076042680222,
+      "f1": 0.0,
+      "accuracy": 0.8404118404118404,
+      "primary_metric": 0.6725287753791435,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.6671631329945681,
+      "auprc": 0.5386710947995466,
+      "f1": 0.0,
+      "accuracy": 0.564993564993565,
+      "primary_metric": 0.6671631329945681,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.8719302839654467,
+      "ave_auc_macro": 0.571052197429286,
+      "ave_auc_weighted": 0.6916287371294618,
+      "ave_auprc_micro": 0.7635943360785734,
+      "ave_auprc_macro": 0.42914882778505814,
+      "ave_auprc_weighted": 0.6976285834946809,
+      "macro_f1": 0.3759545411688838,
+      "accuracy": 0.7426073818260307,
+      "primary_metric": 0.571052197429286,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 13470,
+      "compression_pct": 96.74
+    }
+  },
+  "4": {
+    "IHM": {
+      "auc": 0.7200266758879612,
+      "auprc": 0.27232803905704517,
+      "f1": 0.030303030303030304,
+      "accuracy": 0.8352638352638353,
+      "primary_metric": 0.7200266758879612,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.7003814478845143,
+      "auprc": 0.6384831148720049,
+      "f1": 0.0,
+      "accuracy": 0.564993564993565,
+      "primary_metric": 0.7003814478845143,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.8800251601595531,
+      "ave_auc_macro": 0.6117478625640242,
+      "ave_auc_weighted": 0.7277298361474502,
+      "ave_auprc_micro": 0.7834373095837275,
+      "ave_auprc_macro": 0.45056114512854073,
+      "ave_auprc_weighted": 0.7241174089576279,
+      "macro_f1": 0.37522237582790047,
+      "accuracy": 0.7443341247571768,
+      "primary_metric": 0.6117478625640242,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 23740,
+      "compression_pct": 94.25
+    }
+  },
+  "8": {
+    "IHM": {
+      "auc": 0.7914217260287508,
+      "auprc": 0.44676274502149366,
+      "f1": 0.0,
+      "accuracy": 0.8404118404118404,
+      "primary_metric": 0.7914217260287508,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.8030825841409335,
+      "auprc": 0.7016023292520833,
+      "f1": 0.6003490401396161,
+      "accuracy": 0.7052767052767053,
+      "primary_metric": 0.8030825841409335,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.8873434236573379,
+      "ave_auc_macro": 0.7249018345018494,
+      "ave_auc_weighted": 0.741950107999431,
+      "ave_auprc_micro": 0.7896280237691288,
+      "ave_auprc_macro": 0.473075149671629,
+      "ave_auprc_weighted": 0.7266518045326444,
+      "macro_f1": 0.41660467138887886,
+      "accuracy": 0.7507014893157781,
+      "primary_metric": 0.7249018345018494,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 44280,
+      "compression_pct": 89.27
+    }
+  },
+  "16": {
+    "IHM": {
+      "auc": 0.7912858765993183,
+      "auprc": 0.4518231051173578,
+      "f1": 0.0,
+      "accuracy": 0.8404118404118404,
+      "primary_metric": 0.7912858765993183,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.812686174872963,
+      "auprc": 0.7118354843313872,
+      "f1": 0.7067238912732475,
+      "accuracy": 0.7361647361647362,
+      "primary_metric": 0.812686174872963,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.8449847881560268,
+      "ave_auc_macro": 0.7491486887979549,
+      "ave_auc_weighted": 0.7592483347453671,
+      "ave_auprc_micro": 0.7277512065761993,
+      "ave_auprc_macro": 0.4946226374773015,
+      "ave_auprc_weighted": 0.7415865081995704,
+      "macro_f1": 0.48552932308730185,
+      "accuracy": 0.7056982516727822,
+      "primary_metric": 0.7491486887979549,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 85360,
+      "compression_pct": 79.32
+    }
+  },
+  "32": {
+    "IHM": {
+      "auc": 0.7781455317887664,
+      "auprc": 0.3927273900919286,
+      "f1": 0.046875,
+      "accuracy": 0.842985842985843,
+      "primary_metric": 0.7781455317887664,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.8176463452440323,
+      "auprc": 0.7234990248984954,
+      "f1": 0.7159090909090909,
+      "accuracy": 0.7425997425997426,
+      "primary_metric": 0.8176463452440323,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.7155933956229228,
+      "ave_auc_macro": 0.7649947431047419,
+      "ave_auc_weighted": 0.7703036661919193,
+      "ave_auprc_micro": 0.5531290287779822,
+      "ave_auprc_macro": 0.4949635554319796,
+      "ave_auprc_weighted": 0.7434525244190004,
+      "macro_f1": 0.403579616824615,
+      "accuracy": 0.4731275631340384,
+      "primary_metric": 0.7649947431047419,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 167520,
+      "compression_pct": 59.42
+    }
+  },
+  "64": {
+    "IHM": {
+      "auc": 0.7953119596897694,
+      "auprc": 0.436930277571489,
+      "f1": 0.22666666666666666,
+      "accuracy": 0.8507078507078507,
+      "primary_metric": 0.7953119596897694,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.8201062123438153,
+      "auprc": 0.7276472867333967,
+      "f1": 0.717741935483871,
+      "accuracy": 0.7297297297297297,
+      "primary_metric": 0.8201062123438153,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.8040598095784197,
+      "ave_auc_macro": 0.7948991269558571,
+      "ave_auc_weighted": 0.7890724003285817,
+      "ave_auprc_micro": 0.6487456841868489,
+      "ave_auprc_macro": 0.5339535284738043,
+      "ave_auprc_weighted": 0.7638774908034796,
+      "macro_f1": 0.4062314170626172,
+      "accuracy": 0.5712281459097777,
+      "primary_metric": 0.7948991269558571,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 331840,
+      "compression_pct": 19.61
+    }
+  },
+  "full": {
+    "IHM": {
+      "auc": 0.7933606678851949,
+      "auprc": 0.43839025844371526,
+      "f1": 0.29069767441860467,
+      "accuracy": 0.842985842985843,
+      "primary_metric": 0.7933606678851949,
+      "metric_name": "auc"
+    },
+    "LOS": {
+      "auc": 0.8225997762531843,
+      "auprc": 0.7338584364379762,
+      "f1": 0.7211796246648794,
+      "accuracy": 0.7323037323037324,
+      "primary_metric": 0.8225997762531843,
+      "metric_name": "auc"
+    },
+    "BIRADS": {
+      "ave_auc_micro": 0.8221534009880134,
+      "ave_auc_macro": 0.7983915437880685,
+      "ave_auc_weighted": 0.7926189794293627,
+      "ave_auprc_micro": 0.6856123135004448,
+      "ave_auprc_macro": 0.5406762735600897,
+      "ave_auprc_weighted": 0.7688262139530225,
+      "macro_f1": 0.47173219670504746,
+      "accuracy": 0.6079214331966328,
+      "primary_metric": 0.7983915437880685,
+      "metric_name": "ave_auc_macro"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 412800,
+      "compression_pct": 0.0
+    }
+  }
+}

@@ -184,7 +184,8 @@ class TemporalExpertMLP(nn.Module):
     """
 
     def __init__(self, input_size, hidden_size, temporal_kernel=3,
-                 dropout=0.1, hidden_act="gelu"):
+                 dropout=0.1, hidden_act="gelu",
+                 expert_idx=0, num_experts=1):
         super().__init__()
         self.temporal_conv = nn.Conv1d(
             input_size, input_size,
@@ -196,6 +197,25 @@ class TemporalExpertMLP(nn.Module):
         self.fc2 = nn.Linear(hidden_size, input_size)
         self.dropout = nn.Dropout(dropout)
         self.activation = ACT2FN[hidden_act]
+
+        # Identity-biased, expert-specific init to break symmetry (mechanism 3).
+        # fc2 starts near zero so MoE ≈ no-op → residual carries signal early;
+        # each expert gets a unique small perturbation so the router has a
+        # non-trivial decision from step 1 and per-expert gradients differ.
+        # with torch.no_grad():
+        #     g = torch.Generator().manual_seed(1337 + int(expert_idx))
+        #     noise_scale = 1e-3 / (int(expert_idx) + 1)
+        #     self.fc2.weight.copy_(
+        #         torch.randn(self.fc2.weight.shape, generator=g) * noise_scale
+        #     )
+        #     nn.init.zeros_(self.fc2.bias)
+        #     # Perturb fc1 gain per-expert so the hidden representation each
+        #     # expert produces differs, giving the gate distinct signals.
+        #     centered = int(expert_idx) - (int(num_experts) - 1) / 2.0
+        #     gain = 1.0 + 0.05 * centered
+        #     self.fc1.weight.mul_(gain)
+        # print(f"[expert {expert_idx}/{num_experts}] fc2.weight.std={self.fc2.weight.std():.6f}, "
+        # f"fc2.bias.abs().max()={self.fc2.bias.abs().max():.6f}")
 
     def forward(self, x):
         """
@@ -302,7 +322,7 @@ class ModalityRouter(nn.Module):
         zeros = torch.zeros_like(logits, requires_grad=True)
         gates = zeros.scatter(1, top_k_indices, top_k_gates)
 
-        if self.noisy_gating and self.top_k < self.num_experts:
+        if self.noisy_gating and train and self.top_k < self.num_experts:
             load = self._prob_in_top_k(
                 clean_logits, noisy_logits, noise_stddev, top_logits
             ).sum(0)
@@ -396,9 +416,15 @@ class SeqMoE(nn.Module):
                 temporal_kernel=config.temporal_kernel,
                 dropout=config.dropout,
                 hidden_act=config.hidden_act,
+                expert_idx=i,
+                num_experts=config.num_experts,
             )
-            for _ in range(config.num_experts)
+            for i in range(config.num_experts)
         ])
+
+        # Bounds MoE output magnitude so it can't steamroll the residual
+        # regardless of how large expert weights grow.
+        # self.output_norm = nn.LayerNorm(config.embed_dim)
 
     def _get_router(self, modality_label):
         """Look up the router for a modality type, with fallback."""
@@ -516,6 +542,7 @@ class SeqMoE(nn.Module):
 
             combined = dispatcher.combine(expert_outputs)
             # combined: [bs, seq_len, D]
+            # combined = self.output_norm(combined)
 
             output_list.append(combined.transpose(0, 1))  # [seq_len, bs, D]
 

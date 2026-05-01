@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=0
 
 python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
@@ -23,7 +23,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --embed_path '/export/io79/data/schaud35/datasets/EMBED'\
                 --num_heads 8\
                 --embed_time 64\
-                --tt_max 48\
+                --tt_max 1\
                 --tt_max_eicu 1\
                 --TS_mixup\
                 --mixup_level 'batch'\
@@ -38,8 +38,8 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --use_pt_text_embeddings \
                 --shared_modality_encoders \
                 --modality_drop_rate 0.0 \
-                --multitask_moe \
                 --results_dir '/cis/home/xhan56/code/clinical-highmmt/src/results' \
+                # --multitask_moe \
                 # --use_wandb \
                 # --wandb_project 'clinical-highmmt' 
                 # --linear_probe \

@@ -1,0 +1,122 @@
+{
+  "1": {
+    "LOS": {
+      "auc": 0.658678276340796,
+      "auprc": 0.5693428508066504,
+      "f1": 0.17721518987341772,
+      "accuracy": 0.5817245817245817,
+      "primary_metric": 0.658678276340796,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 8335,
+      "compression_pct": 97.98
+    }
+  },
+  "2": {
+    "LOS": {
+      "auc": 0.7068478656440809,
+      "auprc": 0.6048481383872633,
+      "f1": 0.0989010989010989,
+      "accuracy": 0.5778635778635779,
+      "primary_metric": 0.7068478656440809,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 13470,
+      "compression_pct": 96.74
+    }
+  },
+  "4": {
+    "LOS": {
+      "auc": 0.7763879715868501,
+      "auprc": 0.6445059567358868,
+      "f1": 0.4161616161616162,
+      "accuracy": 0.6280566280566281,
+      "primary_metric": 0.7763879715868501,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 23740,
+      "compression_pct": 94.25
+    }
+  },
+  "8": {
+    "LOS": {
+      "auc": 0.7990120095429364,
+      "auprc": 0.6808813152871002,
+      "f1": 0.5601436265709157,
+      "accuracy": 0.6846846846846847,
+      "primary_metric": 0.7990120095429364,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 44280,
+      "compression_pct": 89.27
+    }
+  },
+  "16": {
+    "LOS": {
+      "auc": 0.8025097383779703,
+      "auprc": 0.6850433139948663,
+      "f1": 0.7198917456021651,
+      "accuracy": 0.7335907335907336,
+      "primary_metric": 0.8025097383779703,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 85360,
+      "compression_pct": 79.32
+    }
+  },
+  "32": {
+    "LOS": {
+      "auc": 0.81051610033562,
+      "auprc": 0.7136116645688472,
+      "f1": 0.7086834733893558,
+      "accuracy": 0.7323037323037324,
+      "primary_metric": 0.81051610033562,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 167520,
+      "compression_pct": 59.42
+    }
+  },
+  "64": {
+    "LOS": {
+      "auc": 0.8193109676375842,
+      "auprc": 0.7321409452471704,
+      "f1": 0.7178770949720671,
+      "accuracy": 0.7400257400257401,
+      "primary_metric": 0.8193109676375842,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 331840,
+      "compression_pct": 19.61
+    }
+  },
+  "full": {
+    "LOS": {
+      "auc": 0.8192368346564947,
+      "auprc": 0.7386484849354431,
+      "f1": 0.7142857142857143,
+      "accuracy": 0.7374517374517374,
+      "primary_metric": 0.8192368346564947,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 412800,
+      "compression_pct": 0.0
+    }
+  }
+}

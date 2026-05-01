@@ -41,7 +41,7 @@ python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                 --results_dir '/cis/home/xhan56/code/clinical-highmmt/src/results' \
 =======
                 --modality_drop_rate 0.0 \
-                --multitask_moe \
+                # --multitask_moe \
                 # --use_wandb \
                 # --wandb_project 'clinical-highmmt' 
 >>>>>>> continual-learning

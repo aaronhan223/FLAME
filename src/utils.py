@@ -9,6 +9,43 @@ import numpy as np
 import torch
 
 
+# Maps each base task name in --task to the args attribute that holds its
+# dash-separated modality string (e.g. 'ihm' -> args.ihm_mod = 'TS-Text').
+TASK_TO_MOD_ARG = {
+    'ihm': 'ihm_mod',
+    'los': 'los_mod',
+    'pheno': 'pheno_mod',
+    'mortality': 'mor_mod',
+    'readmission': 'rad_mod',
+    'birads': 'birads_mod',
+    'risk': 'risk_mod',
+    'density': 'density_mod',
+    'diag': 'diag_mod',
+}
+
+
+def mods_for_task(args, task=None):
+    """Return the underscore-joined per-task modality string for ``task``.
+
+    Replaces the old hand-listed ``task_mods_dict`` lookups: for
+    ``args.task = 'ihm-diag'`` this yields ``f"{args.ihm_mod}_{args.diag_mod}"``.
+
+    Order of base tasks in ``args.task`` is preserved (so file paths from
+    older runs that used a particular order still resolve identically as long
+    as the user keeps that order).
+    """
+    task_str = task if task is not None else args.task
+    parts = []
+    for t in task_str.split('-'):
+        if t not in TASK_TO_MOD_ARG:
+            raise KeyError(
+                f"Unknown task '{t}' in args.task='{task_str}'. "
+                f"Known: {sorted(TASK_TO_MOD_ARG)}"
+            )
+        parts.append(getattr(args, TASK_TO_MOD_ARG[t]))
+    return '_'.join(parts)
+
+
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)

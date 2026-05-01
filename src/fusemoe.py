@@ -50,7 +50,7 @@ class MULTCrossModel(nn.Module):
         self.modalities_per_task = modalities_per_task
         self.num_modalities = len(self.modalities)
         self.use_pt_text_embeddings = args.use_pt_text_embeddings
-        self.token_type_embeddings = nn.Embedding(self.num_modalities, args.embed_dim)
+        # self.token_type_embeddings = nn.Embedding(self.num_modalities, args.embed_dim)
 
         self.to_logits = nn.Sequential(
             nn.LayerNorm(latent_dim*2),
@@ -133,7 +133,7 @@ class MULTCrossModel(nn.Module):
 
         output_dim = num_classes # args.num_labels
         # if self.modeltype=="TS_Text":
-        if self.cross_method in ["self_cross", "moe", "hme"]:
+        if self.cross_method in ["self_cross", "moe", "hme", "flexmoe"]:
             self.trans_self_cross_ts_txt = self.get_cross_network(args, layers=args.cross_layers)
             self.proj1 = nn.ModuleDict()
             self.proj2 = nn.ModuleDict()
@@ -513,27 +513,45 @@ class MULTCrossModel(nn.Module):
                     modalities.append('allviews')
                 else:
                     modalities = ['allviews']
-        
+            # ADNI (diag) modalities. Match on the prefix before any task suffix
+            # ('I' / 'I_DIAG' both work) — no overlap with existing prefixes.
+            _adni_prefix = m.split('_')[0]
+            if _adni_prefix == 'I':
+                proj_x_i = multi_modality_data[m].transpose(1, 0)
+                modalities = (modalities or []) + ['I']
+            if _adni_prefix == 'G':
+                proj_x_g = multi_modality_data[m].transpose(1, 0)
+                modalities = (modalities or []) + ['G']
+            if _adni_prefix == 'C' and m != 'CXR' and not m.startswith('CXR_'):
+                # 'C' alone or 'C_DIAG' — guard against ever extending CXR shorthands
+                proj_x_c = multi_modality_data[m].transpose(1, 0)
+                modalities = (modalities or []) + ['C']
+            if _adni_prefix == 'B':
+                proj_x_b = multi_modality_data[m].transpose(1, 0)
+                modalities = (modalities or []) + ['B']
+
         modalities = sorted(modalities)
         modalities = '_'.join(modalities)
         
         balance_loss = None
         
-        if self.cross_method in ["self_cross", "moe", "hme"]:
+        if self.cross_method in ["self_cross", "moe", "hme", "flexmoe"]:
             # Maps each modality token → (local variable name, short name for the model)
             _proj_var = {
                 'TS':   'proj_x_ts',   'Text': 'proj_x_txt',  'CXR':  'proj_x_cxr',
                 'ECG':  'proj_x_ecg',  'T1':   'proj_x_t1',   'T2':   'proj_x_t2',
                 'T3':   'proj_x_t3',   'T4':   'proj_x_t4',   'T5':   'proj_x_t5',
                 'eicu': 'proj_x_eicu',  'cc': 'proj_x_cc',    'mlo': 'proj_x_mlo',
-                '2dcc': 'proj_x_2dcc',    '2dmlo': 'proj_x_2dmlo', 'allviews': 'proj_x_allviews'
+                '2dcc': 'proj_x_2dcc',    '2dmlo': 'proj_x_2dmlo', 'allviews': 'proj_x_allviews',
+                'I': 'proj_x_i', 'G': 'proj_x_g', 'C': 'proj_x_c', 'B': 'proj_x_b',
             }
             _short_name = {
                 'TS':   'ts',    'Text': 'text',  'CXR':  'cxr',
                 'ECG':  'ecg',   'T1':   't1',    'T2':   't2',
                 'T3':   't3',    'T4':   't4',    'T5':   't5',
                 'eicu': 'eicu',  'cc': 'cc',    'mlo': 'mlo',
-                '2dcc': '2dcc',    '2dmlo': '2dmlo', 'allviews': 'allviews'
+                '2dcc': '2dcc',    '2dmlo': '2dmlo', 'allviews': 'allviews',
+                'I': 'i', 'G': 'g', 'C': 'c', 'B': 'b',
             }
             _lv = locals()
             tokens = modalities.split('_')
@@ -573,19 +591,24 @@ class MULTCrossModel(nn.Module):
         
         # last_hs_proj = self.proj2(F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training))
         
-        if isinstance(self.proj1, nn.ModuleDict):
-            last_hs_proj = F.dropout(F.relu(self.proj1[task](last_hs)), p=self.dropout, training=self.training)
-        else:
-            last_hs_proj = F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training)
-        if isinstance(self.proj2, nn.ModuleDict):
-            last_hs_proj = self.proj2[task](last_hs_proj)
-        else:
-            last_hs_proj = self.proj2(last_hs_proj)
+        # if isinstance(self.proj1, nn.ModuleDict):
+        #     last_hs_proj = F.dropout(F.relu(self.proj1[task](last_hs)), p=self.dropout, training=self.training)
+        # else:
+        #     last_hs_proj = F.dropout(F.relu(self.proj1(last_hs)), p=self.dropout, training=self.training)
+        # if isinstance(self.proj2, nn.ModuleDict):
+        #     last_hs_proj = self.proj2[task](last_hs_proj)
+        # else:
+        #     last_hs_proj = self.proj2(last_hs_proj)
         
-        last_hs_proj += last_hs
+        # last_hs_proj += last_hs
+        
+        last_hs_proj = last_hs
         if get_pre_logits or get_latent or get_catted:
             return last_hs_proj
-        return self.to_logits(last_hs_proj)
+        
+        if use_recon:
+            return self.to_logits(last_hs_proj), None, balance_loss
+        return self.to_logits(last_hs_proj), balance_loss
         # output = self.out_layer(last_hs_proj)
 
         # if 'ihm' in self.task or 'los' in self.task:

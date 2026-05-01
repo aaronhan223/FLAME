@@ -18,12 +18,13 @@ from transformers import (AutoTokenizer,
                          )
 from src.crossattnperceiver import MultiModalityPerceiver, InputModality, PerceiverWrapper, CrossAttnTransformer
 from src.fusemoe import *
+from src.flexmoe import FlexMoE as FlexMoEModel
 from src.mimiciv_task_setup import setup_tasks_and_modalities
 from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder, EMBEDEncoder
 from src.shared_encoders import TimeQueryEncoder
 # from src.shared_encoders import ModalityEncoders, FSEncoder, TimeQueryEncoder
-from src.utils import create_directory, dump_pickle
+from src.utils import create_directory, dump_pickle, mods_for_task
 from src.preprocess.preprocess_eicu import *
 import torch
 from accelerate import Accelerator
@@ -58,6 +59,11 @@ def parse_args():
     parser.add_argument("--birads_mod", type=str, default='', help="Modality compoenents for birads task.")
     parser.add_argument("--risk_mod", type=str, default='', help="Modality compoenents for cancer risk prediction task.")
     parser.add_argument("--density_mod", type=str, default='', help="Modality compoenents for tissue density prediction task.")
+    parser.add_argument("--diag_mod", type=str, default='', help="ADNI diagnosis modalities (letters I/G/C/B separated by '-').")
+    parser.add_argument("--adni_path", type=str, default='/export/io79/data/schaud35/datasets/adni/adni_processed/', help="Root path with preprocessed ADNI subfolders {image, genomic, clinical, biospecimen} and label.csv.")
+    parser.add_argument("--train_bs_adni", type=int, default=None, help="Train batch size for ADNI loaders (defaults to --train_bs_embed).")
+    parser.add_argument("--initial_filling", type=str, default="mean", choices=["mean", "none"], help="Initial filling strategy for missing ADNI feature values (mean = mode-fill).")
+    parser.add_argument("--num_patches", type=int, default=16, help="Number of patches the ADNIEncoder splits each modality vector into.")
 
     parser.add_argument("--tensorboard_dir", type=str, default=None, help="Where to store the final model.")
 
@@ -70,6 +76,11 @@ def parse_args():
             "The maximum total input sequence length after tokenization. Sequences longer than this will be truncated," " sequences shorter will be padded if `--pad_to_max_lengh` is passed."),)
     parser.add_argument( "--pad_to_max_length", action="store_true", help="If passed, pad all samples to `max_length`. Otherwise, dynamic padding is used.", )
     parser.add_argument( "--model_path", type=str, help="Path to pretrained model or model identifier from huggingface.co/models.",
+    )
+    parser.add_argument(
+        "--alpha",
+        type=str,
+        help="Alpha value for the residual gate."
     )
     parser.add_argument(
         "--train_bs_mimic",
@@ -119,7 +130,8 @@ def parse_args():
         help="Number of updates steps to accumulate before performing a backward/update pass.",
     )
 
-    parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay to use.")
+    parser.add_argument("--weight_decay", type=float, default=0.001, help="Weight decay to use.")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate to use.")
     parser.add_argument(
         "--lr_scheduler_type",
         type=str,
@@ -166,7 +178,7 @@ def parse_args():
     parser.add_argument('--self_cross', action='store_true')
     parser.add_argument('--TS_mixup', action='store_true', help='mix up reg and irg data')
     parser.add_argument('--mixup_level', type=str, default='batch', help='mixup level: batch or batch_seq or batch_seq_feature')
-    parser.add_argument('--cross_method', type=str, default='moe', help='cross attention method: moe or self_cross or hme')
+    parser.add_argument('--cross_method', type=str, default='moe', help='cross attention method: moe or self_cross or hme or flexmoe')
 
     parser.add_argument('--fp16', action='store_true')
     parser.add_argument('--debug', action='store_true')
@@ -183,6 +195,7 @@ def parse_args():
     parser.add_argument('--results_dir', type=str, default='/cis/home/schaud35/clinical-highmmt/src/results', help='Directory to store results') 
     parser.add_argument('--fusion_model', type=str, default='multimodalityperceiver', help='Fusion model to use, Perceiver or CrossAttnTransformer')
     parser.add_argument('--linear_probe', action='store_true')
+    parser.add_argument('--transfer_moe', action='store_true', help='Load encoders and MoE model from base task checkpoint, freeze encoders and temporal pooling in MoE routers, train only MoE expert and router gate weights')
     parser.add_argument('--shared_modality_encoders', action='store_true', help='Use shared modality encoders across tasks')
     parser.add_argument('--use_wandb', action='store_true', help='Enable Weights & Biases logging for train/val/test metrics.')
     parser.add_argument('--wandb_project', type=str, default='clinical-highmmt', help='Weights & Biases project name.')
@@ -196,6 +209,7 @@ def parse_args():
     parser.add_argument("--checkpoint_path", type=str, default=None, help="Path to checkpoint .pt file. When --num_train_epochs 0, load model from this path (default: same as savedir from task/mod args).")
     parser.add_argument("--get_logits_txt", type=str, default=None, help="File path to append get-logits run log (txt). When --num_train_epochs 0. Default: results_dir/get_logits_logs/get_logits_log.txt")
     parser.add_argument("--get_logits_csv", type=str, default=None, help="File path to append get-logits run log (csv). When --num_train_epochs 0. Default: results_dir/get_logits_logs/get_logits_log.csv")
+    parser.add_argument("--balance_loss_coef", default=0.01, type=float, help="Coefficient for balance_loss term in total loss")
     args = parser.parse_args()
     return args
 
@@ -259,51 +273,7 @@ def main():
     accelerator = Accelerator(mixed_precision=args.mixed_precision, cpu=args.cpu)
     device = accelerator.device
 
-    task_mods_dict = {
-        'ihm_mod': args.ihm_mod,
-        'los_mod': args.los_mod,
-        'pheno_mod': args.pheno_mod,
-        'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
-        'ihm-los_mod': args.ihm_mod+'_'+args.los_mod,
-        'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
-        'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
-        'readmission_mod': args.rad_mod,
-        'mortality_mod': args.mor_mod,
-        'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
-        'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
-        'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
-        'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
-        'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
-        'pheno-mortality_mod': args.pheno_mod+'_'+args.mor_mod,
-        'pheno-readmission_mod': args.pheno_mod+'_'+args.rad_mod,
-        'pheno-risk_mod': args.pheno_mod+'_'+args.risk_mod,
-        'pheno-birads_mod': args.pheno_mod+'_'+args.birads_mod,
-        'pheno-density_mod': args.pheno_mod+'_'+args.density_mod,
-        'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
-        'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
-        'birads_mod': args.birads_mod,
-        'risk_mod': args.risk_mod,
-        'density_mod': args.density_mod,
-        'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-        'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
-        'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
-        'ihm-density_mod': args.ihm_mod+'_'+args.density_mod,
-        'los-birads_mod': args.los_mod+'_'+args.birads_mod,
-        'los-risk_mod': args.los_mod+'_'+args.risk_mod,
-        'los-density_mod': args.los_mod+'_'+args.density_mod,
-        'mortality-risk_mod': args.mor_mod+'_'+args.risk_mod,
-        'mortality-birads_mod': args.mor_mod+'_'+args.birads_mod,
-        'mortality-density_mod': args.mor_mod+'_'+args.density_mod,
-        'readmission-birads_mod': args.rad_mod+'_'+args.birads_mod,
-        'readmission-risk_mod': args.rad_mod+'_'+args.risk_mod,
-        'readmission-density_mod': args.rad_mod+'_'+args.density_mod,
-        'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
-        'birads-density_mod': args.birads_mod+'_'+args.density_mod,
-        'risk-density_mod': args.risk_mod+'_'+args.density_mod,
-        'ihm-los-pheno-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-        'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
-    }
-    task_mod_key = f'{args.task}_mod'
+    task_mods = mods_for_task(args)
 
     modalities = set()
     modeltype = {}
@@ -341,8 +311,12 @@ def main():
         modeltype['density'] = '_'.join(sorted(args.density_mod.split("-")))
         for e in args.density_mod.split("-"):
             modalities.add(e)
-    
-        
+    if len(args.diag_mod) != 0 and 'diag' in args.task.split("-"):
+        modeltype['diag'] = '_'.join(sorted(args.diag_mod.split("-")))
+        for e in args.diag_mod.split("-"):
+            modalities.add(e)
+
+
     # modeltype = ''
     # modals = [*modalities]
     # modals.sort()
@@ -393,9 +367,9 @@ def main():
             for m in t:
                 perceiver_mod.append(all_modalities[m])
     else:
-        # Common modalities across all tasks
+        # Common modalities across all tasks (sorted for deterministic ordering)
         perceiver_mod = []
-        shared_modalities = set([m for tm in task_mods_dict[task_mod_key].split('_') for m in tm.split('-')])
+        shared_modalities = sorted(set([m for tm in task_mods.split('_') for m in tm.split('-')]))
         for m in shared_modalities:
             perceiver_mod.append(all_modalities[m])
     # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
@@ -444,10 +418,19 @@ def main():
         model = MULTCrossModel(
             args,
             device,
-            modeltype=task_mods_dict[task_mod_key],
+            modeltype=task_mods,
             modalities=perceiver_mod,
             modalities_per_task=modalities_per_task,
             num_classes=1
+        ).to(device)
+    elif args.fusion_model in ['flexmoe']:
+        model = FlexMoEModel(
+            args,
+            device,
+            modeltype=task_mods,
+            modalities=perceiver_mod,
+            modalities_per_task=modalities_per_task,
+            num_classes=1,
         ).to(device)
     else:
         raise ValueError("fusion_model should be multimodalityperceiver or crossattntransformer")
@@ -531,6 +514,76 @@ def main():
             for name, param in all_encoders[task].named_parameters():
                 param.requires_grad = False
 
+    if args.transfer_moe:
+        # Load model checkpoint from base task (e.g., IHM) and transfer MoE weights
+        base_savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task}_{args.base_task_mods}_mod_drop_rate_{args.modality_drop_rate}.pt'
+        print(f"Loading base model from: {base_savedir}")
+        base_model = torch.load(base_savedir, map_location=device)
+
+        # Load compatible weights from base into the new model
+        pretrained_state_dict = base_model.state_dict()
+        model_state_dict = model.state_dict()
+        compatible_weights = {}
+        for k, v in pretrained_state_dict.items():
+            if k in model_state_dict and model_state_dict[k].shape == v.shape:
+                compatible_weights[k] = v
+        skipped_keys = [k for k in pretrained_state_dict if k not in compatible_weights]
+        if skipped_keys:
+            print(f"Skipping {len(skipped_keys)} incompatible/missing keys from base model")
+            for k in skipped_keys:
+                print(f"  - {k} {pretrained_state_dict[k].shape}")
+        new_only_keys = [k for k in model_state_dict if k not in pretrained_state_dict]
+        if new_only_keys:
+            print(f"{len(new_only_keys)} keys in new model not in base (initialized fresh)")
+            for k in new_only_keys:
+                print(f"  + {k} {model_state_dict[k].shape}")
+        model_state_dict.update(compatible_weights)
+        model.load_state_dict(model_state_dict)
+        print(f"Loaded {len(compatible_weights)} compatible keys from base model.")
+
+        # Freeze TemporalAttentionPool in MoE routers
+        for name, param in model.named_parameters():
+            if 'temporal_pool' in name:
+                param.requires_grad = False
+                print(f"  Frozen (temporal_pool): {name}")
+
+        # Load encoder checkpoint from base task; only freeze params that were loaded
+        for ii in range(len(modalities_per_task)):
+            task = modalities_per_task[int(ii)][0].split('_')[1]
+            base_task_upper = args.base_task.upper()
+            enc_path = f'{base_savedir.split(".pt")[0]}_{base_task_upper}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            print(f"Loading encoder for {task} from: {enc_path}")
+            base_encoder = torch.load(enc_path, map_location=device)
+
+            enc_state_dict = all_encoders[task].state_dict()
+            base_enc_state_dict = base_encoder.state_dict()
+            compatible_enc_weights = {}
+            for k, v in base_enc_state_dict.items():
+                if k in enc_state_dict and enc_state_dict[k].shape == v.shape:
+                    compatible_enc_weights[k] = v
+            skipped_enc_keys = [k for k in base_enc_state_dict if k not in compatible_enc_weights]
+            if skipped_enc_keys:
+                print(f"Skipping {len(skipped_enc_keys)} incompatible encoder keys for {task}")
+                for k in skipped_enc_keys:
+                    print(f"  - {k}")
+            enc_state_dict.update(compatible_enc_weights)
+            all_encoders[task].load_state_dict(enc_state_dict)
+
+            # Freeze only the encoder params that were loaded from the base task
+            for name, param in all_encoders[task].named_parameters():
+                if name in compatible_enc_weights:
+                    param.requires_grad = False
+            print(f"Encoder [{task}]: {len(compatible_enc_weights)} params loaded and frozen from {args.base_task}.")
+        
+        # Print summary of trainable vs frozen params
+        trainable_model = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        frozen_model = sum(p.numel() for p in model.parameters() if not p.requires_grad)
+        print(f"\nModel trainable params: {trainable_model}, frozen params: {frozen_model}")
+        for task_key in all_encoders:
+            enc_trainable = sum(p.numel() for p in all_encoders[task_key].parameters() if p.requires_grad)
+            enc_frozen = sum(p.numel() for p in all_encoders[task_key].parameters() if not p.requires_grad)
+            print(f"Encoder [{task_key}] trainable: {enc_trainable}, frozen: {enc_frozen}")
+    
     if args.lora:
         # Wrap model to make it PEFT-compatible
         wrapped_model = PerceiverWrapper(model)
@@ -571,10 +624,14 @@ def main():
     
     # print([(n,p.shape) for n,p in model.named_parameters()])
     # exit()
-    setting = '{}-{}-seed{}-Mbs{}-Ebs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
+    setting = '{}-{}-seed{}-balance_loss_coeff{}-alpha{}-lr{}-wd{}-Mbs{}-Ebs{}-ep{}-enc_head{}-embd_dim{}-perceiver_dim{}-ttmax{}-embd_time{}-{}'.format(
         args.task,
         modeltype,
         args.seed,
+        args.balance_loss_coef,
+        args.alpha,
+        args.lr,
+        args.weight_decay,
         args.train_bs_mimic,
         args.train_bs_eicu,
         args.num_train_epochs,
@@ -585,20 +642,29 @@ def main():
         args.embed_time,
         modalities_per_task
     )
-    if args.lora:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
+    if args.transfer_moe:
+        savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_transfer_moe_from_{args.base_task}.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    elif args.lora:
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_lora_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fine_tune:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_ft_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.linear_probe:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_linear_probe_from_{args.base_task}.pt'
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+    elif args.fusion_model=='flexmoe':
+        savedir = f'./checkpoints/flexmoe/multitask/{args.task}/{args.seed}/{args.task}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
         if args.shared_modality_encoders:
-            savedir = f'./checkpoints/{args.fusion_model}/multitask/{args.task}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+            if args.multitask_moe:
+                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+            else:
+                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         else:
-            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/mimic_iv_{args.task}_{task_mods_dict[task_mod_key]}.pt'
+            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if getattr(args, 'checkpoint_path', None) and args.num_train_epochs == 0:
         savedir = args.checkpoint_path
@@ -606,7 +672,7 @@ def main():
         torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
-            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_encoder.pt')
+            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
     
     _ = train(
         model,
@@ -619,10 +685,10 @@ def main():
         all_encoders,
         setting,
         criterion=criterion,
-        lr=0.0008,
+        lr=args.lr,
         device=device,
         train_weights=train_weights,
-        weight_decay=0.001    
+        weight_decay=args.weight_decay,    
     )
     print('Experiment done!')
 
