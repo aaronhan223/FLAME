@@ -1,6 +1,6 @@
 #!/bin/bash
 cd /cis/home/schaud35/clinical-highmmt
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=4
 
 # ============================================================
 # IHM-BIRADS model — low-rank expert evaluation
@@ -10,7 +10,7 @@ python -W ignore -m src.analysis.eval_lowrank_experts \
     --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/ihm_TS-Text_lr0.0001_wd0.1_mod_drop_rate_0.0.pt \
     --encoder_path \
         /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/ihm_TS-Text_lr0.0001_wd0.1_mod_drop_rate_0.0_IHM_mod_drop_rate_0.0_encoder.pt \
-    --ranks 1 2 4 8 16 32 64 full \
+    --ranks 0 1 2 4 8 16 32 64 full \
     --output_dir /cis/home/schaud35/clinical-highmmt/src/analysis/analysis_results/lowrank_eval \
     --task 'ihm' \
     --ihm_mod 'TS-Text' \

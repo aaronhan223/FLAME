@@ -753,66 +753,15 @@ def plot_expert_energy_curves(model, output_dir):
     print(f"  Expert energy data saved: {json_path}")
 
 
-def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
-                                   args, device, output_dir, max_batches=5):
-    """Cumulative spectral energy of expert weights, weighted by *real test
-    activations* — reveals which ranks the network actually uses.
+def _run_test_forward_passes(model, encoder, all_test, modalities_per_task,
+                              args, device, max_batches=10, on_task_start=None):
+    """Drive forward passes over the test set, one task at a time.
 
-    For every nn.Linear inside an expert, accumulate the input second moment
-    `Cx = E[xxᵀ]` over `max_batches` test forward passes, then for `W = UΣVᵀ`:
-
-        E_data(k)   = Σᵢ≤k σᵢ² · vᵢᵀ Cx vᵢ  /  Σᵢ σᵢ² · vᵢᵀ Cx vᵢ
-        E_weight(k) = Σᵢ≤k σᵢ²              /  Σᵢ σᵢ²
-
-    The weight-only curve treats every direction equally (Frobenius energy);
-    the data-aware curve weights direction i by how much the test data excites
-    it, so it captures `‖Wx‖` energy on the actual distribution. The gap
-    between the two curves is exactly the "functional rank" intuition.
-
-    Conv weights are skipped (would need im2col-style unfold to map cleanly).
+    Pure side-effect: used by hook-based analyses (data-aware energy,
+    routing distributions) to populate accumulators. Optional
+    `on_task_start(task)` callback fires once per task before its batches run,
+    so callers can stamp the current task into hook state.
     """
-    try:
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
-    except ImportError:
-        print("matplotlib not available, skipping data-aware energy plot")
-        return
-
-    # --- Install input-side covariance hooks on every expert Linear ---
-    cx_accum = {}   # name -> [in_dim, in_dim] running sum of xᵀx
-    n_samples = {}  # name -> total tokens seen
-    weights = {}    # name -> W tensor (cpu, fp32)
-    hooks = []
-
-    for name, module in model.named_modules():
-        if '.moe.experts.' not in name:
-            continue
-        if not isinstance(module, torch.nn.Linear):
-            continue
-        weights[name] = module.weight.detach().float().cpu()
-        cx_accum[name] = None
-        n_samples[name] = 0
-
-        def make_hook(nm):
-            def hook_fn(mod, inp, out):
-                with torch.no_grad():
-                    x = inp[0].float().detach()
-                    x = x.reshape(-1, x.shape[-1])
-                    xtx = (x.T @ x).cpu()
-                    if cx_accum[nm] is None:
-                        cx_accum[nm] = xtx
-                    else:
-                        cx_accum[nm] += xtx
-                    n_samples[nm] += x.shape[0]
-            return hook_fn
-        hooks.append(module.register_forward_hook(make_hook(name)))
-
-    if not weights:
-        print("No expert Linear layers found for data-aware energy.")
-        return
-
-    # --- Drive forward passes (logic mirrors diagnose_expert_contribution) ---
     model.eval()
     for enc in encoder.values():
         enc.eval()
@@ -821,6 +770,8 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
     with torch.no_grad():
         for ii in range(len(all_test)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
+            if on_task_start is not None:
+                on_task_start(task)
             model.to_logits = model.to_logitslist[ii]
             batch_count = 0
             for jj in all_test[ii]:
@@ -904,13 +855,79 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
 
                 batch_count += 1
 
+
+def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
+                                   args, device, output_dir, max_batches=5):
+    """Cumulative spectral energy of expert weights, weighted by *real test
+    activations* — reveals which ranks the network actually uses.
+
+    For every nn.Linear inside an expert, accumulate the input second moment
+    `Cx = E[xxᵀ]` over `max_batches` test forward passes, then for `W = UΣVᵀ`:
+
+        E_data(k)   = Σᵢ≤k σᵢ² · vᵢᵀ Cx vᵢ  /  Σᵢ σᵢ² · vᵢᵀ Cx vᵢ
+        E_weight(k) = Σᵢ≤k σᵢ²              /  Σᵢ σᵢ²
+
+    The weight-only curve treats every direction equally (Frobenius energy);
+    the data-aware curve weights direction i by how much the test data excites
+    it, so it captures `‖Wx‖` energy on the actual distribution. The gap
+    between the two curves is exactly the "functional rank" intuition.
+
+    Conv weights are skipped (would need im2col-style unfold to map cleanly).
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not available, skipping data-aware energy plot")
+        return
+
+    # --- Install input-side covariance hooks on every expert Linear ---
+    cx_accum = {}   # name -> [in_dim, in_dim] running sum of xᵀx
+    n_samples = {}  # name -> total tokens seen
+    weights = {}    # name -> W tensor (cpu, fp32)
+    hooks = []
+
+    for name, module in model.named_modules():
+        if '.moe.experts.' not in name:
+            continue
+        if not isinstance(module, torch.nn.Linear):
+            continue
+        weights[name] = module.weight.detach().float().cpu()
+        cx_accum[name] = None
+        n_samples[name] = 0
+
+        def make_hook(nm):
+            def hook_fn(mod, inp, out):
+                with torch.no_grad():
+                    x = inp[0].float().detach()
+                    x = x.reshape(-1, x.shape[-1])
+                    xtx = (x.T @ x).cpu()
+                    if cx_accum[nm] is None:
+                        cx_accum[nm] = xtx
+                    else:
+                        cx_accum[nm] += xtx
+                    n_samples[nm] += x.shape[0]
+            return hook_fn
+        hooks.append(module.register_forward_hook(make_hook(name)))
+
+    if not weights:
+        print("No expert Linear layers found for data-aware energy.")
+        return
+
+    _run_test_forward_passes(
+        model, encoder, all_test, modalities_per_task,
+        args, device, max_batches=max_batches,
+    )
+
     for h in hooks:
         h.remove()
 
-    # --- Compute weight-only and data-aware energy curves per layer ---
+    # --- Compute weight-only, data-aware, and input-spectrum energy curves ---
     weight_curves = {}
     data_curves = {}
-    rank_at_90 = {}  # name -> (k_weight, k_data)
+    input_curves = {}
+    rank_at_90 = {}  # name -> (k_input, k_weight, k_data, max_rank)
 
     for name, W in weights.items():
         if cx_accum[name] is None or n_samples[name] == 0:
@@ -928,6 +945,15 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
         weight_energy = sigma2.numpy()
         data_energy = (sigma2 * proj).numpy()
 
+        # Input spectrum: eigenvalues of the input covariance Cx (descending).
+        # These are σᵢ²(X)/N where σᵢ(X) are singular values of the input
+        # matrix X — same cumulative-energy curve as SVD of X itself.
+        try:
+            input_eigs = torch.linalg.eigvalsh(Cx).flip(0).clamp(min=0).numpy()
+        except Exception as e:
+            print(f"  eigvalsh failed for {name}: {e}")
+            input_eigs = None
+
         if weight_energy.sum() <= 0 or data_energy.sum() <= 0:
             continue
         w_cum = np.concatenate(([0.0], np.cumsum(weight_energy))) / weight_energy.sum() * 100
@@ -935,10 +961,17 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
         weight_curves[name] = w_cum
         data_curves[name] = d_cum
 
-        # k at which we cross 90% energy
+        if input_eigs is not None and input_eigs.sum() > 0:
+            i_cum = np.concatenate(([0.0], np.cumsum(input_eigs))) / input_eigs.sum() * 100
+            input_curves[name] = i_cum
+            ki = int(np.searchsorted(i_cum, 90.0))
+        else:
+            ki = -1
+
+        # k at which we cross 90% energy for each curve
         kw = int(np.searchsorted(w_cum, 90.0))
         kd = int(np.searchsorted(d_cum, 90.0))
-        rank_at_90[name] = (kw, kd, len(S))
+        rank_at_90[name] = (ki, kw, kd, len(S))
 
     if not data_curves:
         print("No data-aware curves produced (no activations collected).")
@@ -950,7 +983,7 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
     show_labels = n <= 30
     cmap = plt.get_cmap('viridis')
 
-    fig, (ax_w, ax_d) = plt.subplots(1, 2, figsize=(16, 6), sharey=True)
+    fig, (ax_w, ax_d) = plt.subplots(1, 2, figsize=(16, 6))
     for i, (name, short) in enumerate(zip(data_curves.keys(), short_names)):
         color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
         ax_w.plot(range(len(weight_curves[name])), weight_curves[name],
@@ -960,17 +993,24 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
                   color=color, alpha=0.6, linewidth=1.0,
                   label=short if show_labels else None)
 
-    for ax, title in [(ax_w, 'Weight-only (Frobenius)'),
-                      (ax_d, 'Data-aware (test activations)')]:
+    # Independent y-axis scaling: each panel auto-fits to its own data so
+    # subtle structure isn't squashed into a small range when the other panel
+    # spans a different scale.
+    w_max = max(c.max() for c in weight_curves.values())
+    d_max = max(c.max() for c in data_curves.values())
+    for ax, title, ymax in [
+        (ax_w, 'Weight-only (Frobenius)', w_max),
+        (ax_d, 'Data-aware (test activations)', d_max),
+    ]:
         ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% energy')
         ax.axhline(99, color='red', linestyle=':', alpha=0.5, label='99% energy')
         ax.set_xlabel('Rank K')
-        ax.set_ylim(0, 105)
+        ax.set_ylabel('% Cumulative Energy in Top-K')
+        ax.set_ylim(0, max(105.0, ymax * 1.05))
         ax.grid(True, alpha=0.3)
         ax.set_title(title)
         ax.legend(fontsize=6 if show_labels else 9, loc='lower right',
                   ncol=2 if show_labels else 1)
-    ax_w.set_ylabel('% Cumulative Energy in Top-K')
     fig.suptitle(f'Expert Spectral Energy: Weight vs Data-aware ({n} layers, '
                  f'{max(n_samples.values())} tokens)')
     plt.tight_layout()
@@ -980,24 +1020,339 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
     plt.close()
     print(f"  Data-aware energy plot saved: {save_path}")
 
-    # --- Summary table: rank to reach 90% energy, weight vs data ---
-    print(f"\n  Rank-at-90%-energy: weight-only -> data-aware (max rank)")
-    print(f"  {'layer':<70}  {'k_w':>5}  {'k_d':>5}  {'max':>5}  {'compress':>8}")
+    # --- Plot: input | weight | data-aware (separate PNG for comparison) ---
+    if input_curves:
+        fig3, (ax_in, ax_w3, ax_d3) = plt.subplots(1, 3, figsize=(20, 6))
+        for i, (name, short) in enumerate(zip(data_curves.keys(), short_names)):
+            color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
+            if name in input_curves:
+                ax_in.plot(range(len(input_curves[name])), input_curves[name],
+                           color=color, alpha=0.6, linewidth=1.0,
+                           label=short if show_labels else None)
+            ax_w3.plot(range(len(weight_curves[name])), weight_curves[name],
+                       color=color, alpha=0.6, linewidth=1.0,
+                       label=short if show_labels else None)
+            ax_d3.plot(range(len(data_curves[name])), data_curves[name],
+                       color=color, alpha=0.6, linewidth=1.0,
+                       label=short if show_labels else None)
+        i_max = max(c.max() for c in input_curves.values())
+        for ax, title, ymax in [
+            (ax_in, 'Input spectrum (Cx eigenvalues)', i_max),
+            (ax_w3, 'Weight-only (Frobenius)', w_max),
+            (ax_d3, 'Data-aware (test activations)', d_max),
+        ]:
+            ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% energy')
+            ax.axhline(99, color='red', linestyle=':', alpha=0.5, label='99% energy')
+            ax.set_xlabel('Rank K')
+            ax.set_ylabel('% Cumulative Energy in Top-K')
+            ax.set_ylim(0, max(105.0, ymax * 1.05))
+            ax.grid(True, alpha=0.3)
+            ax.set_title(title)
+            ax.legend(fontsize=6 if show_labels else 9, loc='lower right',
+                      ncol=2 if show_labels else 1)
+        fig3.suptitle(f'Expert Spectra: Input vs Weight vs Data-aware ({n} layers, '
+                       f'{max(n_samples.values())} tokens)')
+        plt.tight_layout()
+        cmp_save_path = os.path.join(output_dir, 'expert_input_spectrum_comparison.png')
+        plt.savefig(cmp_save_path, dpi=150)
+        plt.close()
+        print(f"  Input spectrum comparison plot saved: {cmp_save_path}")
+
+    # --- Summary table: rank to reach 90% energy, input vs weight vs data ---
+    print(f"\n  Rank-at-90%-energy: input -> weight -> data-aware (max rank)")
+    print(f"  {'layer':<70}  {'k_in':>5}  {'k_w':>5}  {'k_d':>5}  {'max':>5}")
     short_for_table = _trim_common_prefix(list(rank_at_90.keys()))
-    for (name, (kw, kd, mr)), short in zip(rank_at_90.items(), short_for_table):
-        ratio = (kw / kd) if kd > 0 else float('inf')
-        print(f"  {short:<70}  {kw:>5}  {kd:>5}  {mr:>5}  {ratio:>7.2f}x")
+    for (name, (ki, kw, kd, mr)), short in zip(rank_at_90.items(), short_for_table):
+        ki_str = f'{ki}' if ki >= 0 else '-'
+        print(f"  {short:<70}  {ki_str:>5}  {kw:>5}  {kd:>5}  {mr:>5}")
 
     json_path = os.path.join(output_dir, 'expert_data_aware_energy.json')
     with open(json_path, 'w') as f:
         json.dump({
             'weight_only': {n: c.tolist() for n, c in weight_curves.items()},
             'data_aware': {n: c.tolist() for n, c in data_curves.items()},
-            'rank_at_90_pct': {n: {'weight': kw, 'data': kd, 'max': mr}
-                                for n, (kw, kd, mr) in rank_at_90.items()},
+            'input_spectrum': {n: c.tolist() for n, c in input_curves.items()},
+            'rank_at_90_pct': {n: {'input': ki, 'weight': kw, 'data': kd,
+                                    'max': mr}
+                                for n, (ki, kw, kd, mr) in rank_at_90.items()},
             'tokens_per_layer': n_samples,
         }, f, indent=2)
     print(f"  Data-aware energy data saved: {json_path}")
+
+
+def plot_routing_distribution(model, encoder, all_test, modalities_per_task,
+                              args, device, output_dir, max_batches=10**9):
+    """Per-MoE-layer routing-distribution heatmaps, broken down by (task, modality).
+
+    Routers in this codebase are *modality-specific*: each SeqMoE layer holds a
+    `routers` ModuleDict keyed by modality type (ts/txt/cxr/ecg/cc/mlo/...),
+    routing into a shared expert pool. Each router emits sparse top-k gates
+    over the expert pool per token.
+
+    For every router call during a test forward pass, we accumulate two
+    quantities per (layer, task, modality, expert):
+      - activation_ratio: fraction of tokens where this expert was in top-k
+      - mean_gate_weight: average sparse gate weight assigned
+
+    Output: one figure per MoE layer with two heatmaps (rows = task|modality,
+    cols = expert index) plus a raw-data JSON.
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not available, skipping routing distribution plot")
+        return
+
+    # --- Discover routers and parse (layer_prefix, modality) from each name ---
+    router_info = {}  # full_name -> (layer_prefix, modality_label)
+    for name, module in model.named_modules():
+        if 'Router' not in type(module).__name__:
+            continue
+        parts = name.split('.')
+        if 'routers' in parts:
+            ri = parts.index('routers')
+            layer_prefix = '.'.join(parts[:ri])
+            modality = parts[ri + 1] if ri + 1 < len(parts) else 'default'
+        elif 'default_router' in parts:
+            ri = parts.index('default_router')
+            layer_prefix = '.'.join(parts[:ri])
+            modality = 'default'
+        else:
+            continue
+        router_info[name] = (layer_prefix, modality)
+
+    if not router_info:
+        print("No ModalityRouter modules found.")
+        return
+
+    current = {'task': 'unknown'}
+    accum = {}  # layer_prefix -> {(task, modality): {'gate_sum', 'active_count', 'tokens'}}
+
+    hooks = []
+    for name, module in model.named_modules():
+        if name not in router_info:
+            continue
+        layer_prefix, modality = router_info[name]
+        accum.setdefault(layer_prefix, {})
+
+        def make_hook(lp, mod):
+            def hook_fn(m, inp, out):
+                with torch.no_grad():
+                    gates = out[0] if isinstance(out, tuple) else out
+                    if gates is None:
+                        return
+                    g = gates.float().detach().cpu()
+                    key = (current['task'], mod)
+                    b = accum[lp].get(key)
+                    if b is None:
+                        b = {
+                            'gate_sum': torch.zeros(g.shape[-1]),
+                            'active_count': torch.zeros(g.shape[-1]),
+                            'tokens': 0,
+                        }
+                        accum[lp][key] = b
+                    b['gate_sum'] += g.sum(dim=0)
+                    b['active_count'] += (g > 0).float().sum(dim=0)
+                    b['tokens'] += g.shape[0]
+            return hook_fn
+        hooks.append(module.register_forward_hook(make_hook(layer_prefix, modality)))
+
+    # Drive forward passes; stamp the active task into hook state at each task boundary.
+    def _set_task(t):
+        current['task'] = t
+    _run_test_forward_passes(
+        model, encoder, all_test, modalities_per_task,
+        args, device, max_batches=max_batches, on_task_start=_set_task,
+    )
+
+    for h in hooks:
+        h.remove()
+
+    # --- One figure per MoE layer ---
+    json_payload = {}
+    for layer_prefix in sorted(accum.keys()):
+        layer_data = accum[layer_prefix]
+        if not layer_data:
+            continue
+        sample = next(iter(layer_data.values()))
+        n_experts = sample['gate_sum'].shape[0]
+
+        # Aggregate across tasks per modality (routers are modality-specific:
+        # the same modality's bars across tasks share router weights, so the
+        # functional summary of a router is its per-modality routing pattern).
+        # Per-task breakdown is preserved in the JSON output.
+        mod_agg = {}
+        for (tsk, mod), b in layer_data.items():
+            agg = mod_agg.setdefault(mod, {
+                'active_count': np.zeros(n_experts),
+                'gate_sum': np.zeros(n_experts),
+                'tokens': 0,
+                'tasks': [],
+            })
+            agg['active_count'] += b['active_count'].numpy()
+            agg['gate_sum'] += b['gate_sum'].numpy()
+            agg['tokens'] += b['tokens']
+            agg['tasks'].append(tsk)
+
+        modalities = sorted(mod_agg.keys())
+        n_mod = len(modalities)
+        cmap = plt.get_cmap('tab10' if n_mod <= 10 else 'tab20')
+        mod_colors = {m: cmap(i % cmap.N) for i, m in enumerate(modalities)}
+
+        # Narrow bars: leave half of each unit free for inter-expert spacing.
+        bar_width = 0.5 / max(1, n_mod)
+
+        fig_width = max(12, n_experts * 0.9)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(fig_width, 5.5))
+
+        x = np.arange(n_experts)
+        for j, mod in enumerate(modalities):
+            offset = (j - (n_mod - 1) / 2) * bar_width
+            agg = mod_agg[mod]
+            tokens = max(agg['tokens'], 1)
+            ratios = agg['active_count'] / tokens * 100.0
+            gate_w = agg['gate_sum'] / tokens
+            ax1.bar(x + offset, ratios, bar_width,
+                    color=mod_colors[mod], alpha=0.9, label=mod,
+                    edgecolor='none')
+            ax2.bar(x + offset, gate_w, bar_width,
+                    color=mod_colors[mod], alpha=0.9, label=mod,
+                    edgecolor='none')
+
+        for ax, ylabel, title in [
+            (ax1, '% tokens routed to expert', 'Activation ratio'),
+            (ax2, 'mean gate weight', 'Mean gate weight (sparse)'),
+        ]:
+            ax.set_xlabel('Expert index')
+            ax.set_ylabel(ylabel)
+            ax.set_title(title)
+            ax.set_xticks(x)
+            ax.grid(True, axis='y', alpha=0.25)
+
+        # Single shared legend below both panels.
+        handles, labels = ax1.get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center',
+                   ncol=min(n_mod, 5), fontsize=9,
+                   bbox_to_anchor=(0.5, -0.02))
+        fig.suptitle(f'Routing distribution — {layer_prefix}', fontsize=12)
+        plt.tight_layout(rect=[0, 0.04, 1, 0.97])
+
+        layer_short = layer_prefix.replace('.', '_')
+        # Encode routing-decision counts in the filename: collapse to a single
+        # suffix when all modalities saw the same n; otherwise list per-modality.
+        counts = [mod_agg[m]['tokens'] for m in modalities]
+        if counts and len(set(counts)) == 1:
+            count_suffix = f'n{counts[0]}'
+        else:
+            count_suffix = '_'.join(f'{m}_n{mod_agg[m]["tokens"]}'
+                                     for m in modalities)
+        save_path = os.path.join(
+            output_dir, f'routing_{layer_short}_{count_suffix}.png')
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        print(f"  Routing distribution saved: {save_path}")
+
+        # --- Per-task plot: one row of (ratio | gate-weight) subplots per task,
+        # bars colored by modality (same palette as the aggregated plot). Skip
+        # when there's only one task — it would duplicate the aggregated plot.
+        by_task = {}
+        for (tsk, mod), b in layer_data.items():
+            tk = max(b['tokens'], 1)
+            by_task.setdefault(tsk, {})[mod] = {
+                'ratios': (b['active_count'].numpy() / tk) * 100.0,
+                'gate_w': b['gate_sum'].numpy() / tk,
+                'tokens': int(b['tokens']),
+            }
+
+        if len(by_task) > 1:
+            tasks = sorted(by_task.keys())
+            n_tasks = len(tasks)
+
+            fig_height_pt = max(3.0, 2.6 * n_tasks)
+            fig_pt, axes_pt = plt.subplots(
+                n_tasks, 2, figsize=(fig_width, fig_height_pt),
+                sharex=True, squeeze=False,
+            )
+
+            legend_handles = {}
+            for row, task in enumerate(tasks):
+                task_mods = by_task[task]
+                ax_r = axes_pt[row, 0]
+                ax_g = axes_pt[row, 1]
+                for j, mod in enumerate(modalities):
+                    if mod not in task_mods:
+                        continue
+                    offset = (j - (n_mod - 1) / 2) * bar_width
+                    d = task_mods[mod]
+                    bars = ax_r.bar(x + offset, d['ratios'], bar_width,
+                                    color=mod_colors[mod], alpha=0.9,
+                                    label=mod, edgecolor='none')
+                    ax_g.bar(x + offset, d['gate_w'], bar_width,
+                             color=mod_colors[mod], alpha=0.9,
+                             label=mod, edgecolor='none')
+                    legend_handles.setdefault(mod, bars[0])
+
+                ax_r.set_ylabel(f'{task}\n% routed', fontsize=10)
+                ax_g.set_ylabel(f'{task}\nmean gate w', fontsize=10)
+                ax_r.set_xticks(x)
+                ax_g.set_xticks(x)
+                ax_r.grid(True, axis='y', alpha=0.25)
+                ax_g.grid(True, axis='y', alpha=0.25)
+                if row == 0:
+                    ax_r.set_title('Activation ratio')
+                    ax_g.set_title('Mean gate weight (sparse)')
+                if row == n_tasks - 1:
+                    ax_r.set_xlabel('Expert index')
+                    ax_g.set_xlabel('Expert index')
+
+            fig_pt.legend(
+                list(legend_handles.values()), list(legend_handles.keys()),
+                loc='lower center', ncol=min(n_mod, 5), fontsize=9,
+                bbox_to_anchor=(0.5, -0.02),
+            )
+            fig_pt.suptitle(f'Routing distribution by task — {layer_prefix}',
+                             fontsize=12)
+            plt.tight_layout(rect=[0, 0.04, 1, 0.97])
+
+            # Per-task counts in the filename: each task lists either a single
+            # `n<count>` (if all its modalities saw the same number) or a
+            # `n<min>-<max>` range when they diverge.
+            task_count_parts = []
+            for task in tasks:
+                tcounts = [d['tokens'] for d in by_task[task].values()]
+                if len(set(tcounts)) == 1:
+                    task_count_parts.append(f'{task}_n{tcounts[0]}')
+                else:
+                    task_count_parts.append(
+                        f'{task}_n{min(tcounts)}-{max(tcounts)}')
+            per_task_suffix = '_'.join(task_count_parts)
+
+            per_task_save_path = os.path.join(
+                output_dir,
+                f'routing_{layer_short}_per_task_{per_task_suffix}.png',
+            )
+            plt.savefig(per_task_save_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            print(f"  Per-task routing distribution saved: {per_task_save_path}")
+
+        # JSON keeps per-(task, modality) granularity for downstream analysis.
+        json_payload[layer_prefix] = {
+            f'{tsk}|{mod}': {
+                'activation_ratio_pct': ((b['active_count'].numpy()
+                                          / max(b['tokens'], 1)) * 100.0).tolist(),
+                'mean_gate_weight': (b['gate_sum'].numpy()
+                                      / max(b['tokens'], 1)).tolist(),
+                'tokens': int(b['tokens']),
+            }
+            for (tsk, mod), b in layer_data.items()
+        }
+
+    json_path = os.path.join(output_dir, 'routing_distribution.json')
+    with open(json_path, 'w') as f:
+        json.dump(json_payload, f, indent=2)
+    print(f"  Routing data saved: {json_path}")
 
 
 def compute_router_ranks(model):
@@ -1340,6 +1695,15 @@ def main():
     print("  Data-Aware Spectral Energy (test activations)")
     print(f"{'='*60}")
     plot_data_aware_energy_curves(
+        model, all_encoders, all_test, modalities_per_task,
+        args, device, extra_args.output_dir, max_batches=10,
+    )
+
+    # --- Routing distribution per (task, modality) ---
+    print(f"\n{'='*60}")
+    print("  Routing Distribution (per task × modality)")
+    print(f"{'='*60}")
+    plot_routing_distribution(
         model, all_encoders, all_test, modalities_per_task,
         args, device, extra_args.output_dir, max_batches=10,
     )

@@ -1,4 +1,19 @@
 {
+  "0": {
+    "IHM": {
+      "auc": 0.42985846959442775,
+      "auprc": 0.14802084638388038,
+      "f1": 0.0,
+      "accuracy": 0.8404118404118404,
+      "primary_metric": 0.42985846959442775,
+      "metric_name": "auc"
+    },
+    "_param_info": {
+      "full_expert_params": 412800,
+      "lowrank_expert_params": 3200,
+      "compression_pct": 99.22
+    }
+  },
   "1": {
     "IHM": {
       "auc": 0.6529541075927481,

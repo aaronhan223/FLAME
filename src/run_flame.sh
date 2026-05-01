@@ -1,9 +1,9 @@
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=4
 SEEDS=(0 42 453 1002 10293)
 EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
-TASK='ihm-risk'
+TASK='diag'
 GATING='laplace'
 BALANCE_LOSS_COEF='1.0'
 ALPHA='const_0.0'
@@ -11,7 +11,7 @@ MOD_DROP_RATE='0.0'
 
 for SEED in "${SEEDS[@]}"; do
     python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
-                --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 \
+                --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 --train_bs_adni 64\
                 --eval_batch_size 8 --seed "${SEED}" \
                 --gradient_accumulation_steps 16  --num_update_bert_epochs 2 --bertcount 0 \
                 --ts_learning_rate 0.0004 --txt_learning_rate 0.00002 \
@@ -28,9 +28,11 @@ for SEED in "${SEEDS[@]}"; do
                 --birads_mod 'cc-mlo-2dcc-2dmlo'\
                 --risk_mod 'cc-mlo-2dcc-2dmlo'\
                 --density_mod 'cc-mlo-2dcc-2dmlo'\
+                --diag_mod 'I-G-C-B'\
                 --mimic_path '/export/io79/data/schaud35/datasets/'\
                 --eicu_path '/export/io79/data/schaud35/datasets/eicu/processed/'\
                 --embed_path '/export/io79/data/schaud35/datasets/EMBED'\
+                --adni_path '/export/io79/data/schaud35/datasets/adni/adni_processed/'\
                 --num_heads 8\
                 --embed_time 64\
                 --tt_max 48\
@@ -50,7 +52,6 @@ for SEED in "${SEEDS[@]}"; do
                 --shared_modality_encoders \
                 --modality_drop_rate "${MOD_DROP_RATE}" \
                 --multitask_moe \
-                --use_wandb \
                 --alpha "${ALPHA}" \
                 --results_dir "${RESULTS_DIR}" \
                 --lr 0.0001 \

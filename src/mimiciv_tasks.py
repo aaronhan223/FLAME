@@ -24,7 +24,7 @@ from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder, EMBEDEncoder
 from src.shared_encoders import TimeQueryEncoder
 # from src.shared_encoders import ModalityEncoders, FSEncoder, TimeQueryEncoder
-from src.utils import create_directory, dump_pickle
+from src.utils import create_directory, dump_pickle, mods_for_task
 from src.preprocess.preprocess_eicu import *
 import torch
 from accelerate import Accelerator
@@ -59,6 +59,11 @@ def parse_args():
     parser.add_argument("--birads_mod", type=str, default='', help="Modality compoenents for birads task.")
     parser.add_argument("--risk_mod", type=str, default='', help="Modality compoenents for cancer risk prediction task.")
     parser.add_argument("--density_mod", type=str, default='', help="Modality compoenents for tissue density prediction task.")
+    parser.add_argument("--diag_mod", type=str, default='', help="ADNI diagnosis modalities (letters I/G/C/B separated by '-').")
+    parser.add_argument("--adni_path", type=str, default='/export/io79/data/schaud35/datasets/adni/adni_processed/', help="Root path with preprocessed ADNI subfolders {image, genomic, clinical, biospecimen} and label.csv.")
+    parser.add_argument("--train_bs_adni", type=int, default=None, help="Train batch size for ADNI loaders (defaults to --train_bs_embed).")
+    parser.add_argument("--initial_filling", type=str, default="mean", choices=["mean", "none"], help="Initial filling strategy for missing ADNI feature values (mean = mode-fill).")
+    parser.add_argument("--num_patches", type=int, default=16, help="Number of patches the ADNIEncoder splits each modality vector into.")
 
     parser.add_argument("--tensorboard_dir", type=str, default=None, help="Where to store the final model.")
 
@@ -265,38 +270,7 @@ def main():
     accelerator = Accelerator(mixed_precision=args.mixed_precision, cpu=args.cpu)
     device = accelerator.device
 
-    task_mods_dict = {
-        'ihm_mod': args.ihm_mod,
-        'los_mod': args.los_mod,
-        'pheno_mod': args.pheno_mod,
-        'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
-        'ihm-los_mod': args.ihm_mod+'_'+args.los_mod,
-        'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
-        'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
-        'readmission_mod': args.rad_mod,
-        'mortality_mod': args.mor_mod,
-        'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
-        'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
-        'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
-        'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
-        'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
-        'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
-        'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
-        'birads_mod': args.birads_mod,
-        'risk_mod': args.risk_mod,
-        'density_mod': args.density_mod,
-        'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-        'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
-        'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
-        'ihm-density_mod': args.ihm_mod+'_'+args.density_mod,
-        'ihm-los-birads_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.birads_mod,
-        'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
-        'birads-density_mod': args.birads_mod+'_'+args.density_mod,
-        'risk-density_mod': args.risk_mod+'_'+args.density_mod,
-        'ihm-los-pheno-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-        'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
-    }
-    task_mod_key = f'{args.task}_mod'
+    task_mods = mods_for_task(args)
 
     modalities = set()
     modeltype = {}
@@ -334,8 +308,12 @@ def main():
         modeltype['density'] = '_'.join(sorted(args.density_mod.split("-")))
         for e in args.density_mod.split("-"):
             modalities.add(e)
-    
-        
+    if len(args.diag_mod) != 0 and 'diag' in args.task.split("-"):
+        modeltype['diag'] = '_'.join(sorted(args.diag_mod.split("-")))
+        for e in args.diag_mod.split("-"):
+            modalities.add(e)
+
+
     # modeltype = ''
     # modals = [*modalities]
     # modals.sort()
@@ -388,7 +366,7 @@ def main():
     else:
         # Common modalities across all tasks (sorted for deterministic ordering)
         perceiver_mod = []
-        shared_modalities = sorted(set([m for tm in task_mods_dict[task_mod_key].split('_') for m in tm.split('-')]))
+        shared_modalities = sorted(set([m for tm in task_mods.split('_') for m in tm.split('-')]))
         for m in shared_modalities:
             perceiver_mod.append(all_modalities[m])
     # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
@@ -437,7 +415,7 @@ def main():
         model = MULTCrossModel(
             args,
             device,
-            modeltype=task_mods_dict[task_mod_key],
+            modeltype=task_mods,
             modalities=perceiver_mod,
             modalities_per_task=modalities_per_task,
             num_classes=1
@@ -446,7 +424,7 @@ def main():
         model = FlexMoEModel(
             args,
             device,
-            modeltype=task_mods_dict[task_mod_key],
+            modeltype=task_mods,
             modalities=perceiver_mod,
             modalities_per_task=modalities_per_task,
             num_classes=1,
@@ -662,28 +640,28 @@ def main():
         modalities_per_task
     )
     if args.transfer_moe:
-        savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_transfer_moe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.lora:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_lora_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fine_tune:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_ft_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.linear_probe:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_linear_probe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fusion_model=='flexmoe':
-        savedir = f'./checkpoints/flexmoe/multitask/{args.task}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+        savedir = f'./checkpoints/flexmoe/multitask/{args.task}/{args.seed}/{args.task}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
         if args.shared_modality_encoders:
             if args.multitask_moe:
-                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
             else:
-                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         else:
-            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
         torch.save(model,savedir)

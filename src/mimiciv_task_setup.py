@@ -2,9 +2,14 @@ import torch
 import numpy as np
 
 from src.crossattnperceiver import InputModality
+from src.datasets.adni.get_data_adni import (
+    data_prepare as prepare_adni,
+    get_modality_input_dims as get_adni_input_dims,
+    get_n_classes as get_adni_n_classes,
+)
 from src.datasets.embed.get_data_embed import data_prepare as prepare_embed
 from src.datasets.mimic.get_data_mimic_iv import data_prepare as prepare_mimic
-from src.encoders import EMBEDEncoder, FSEncoder, ModalityEncoders
+from src.encoders import ADNIEncoder, EMBEDEncoder, FSEncoder, ModalityEncoders
 from src.get_data_eicu import data_prepare as prepare_eicu
 from src.shared_encoders import TimeQueryEncoder
 from src.loss import FocalLoss
@@ -288,6 +293,33 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
         density_encoder = EMBEDEncoder(args=args, device=device, modalities=modalities)
         all_encoders['DENSITY'] = density_encoder
 
+    if 'diag' in tasks:
+        diag_letters = [m.strip() for m in args.diag_mod.split('-') if m.strip()]
+        modeltype_diag = '_'.join(sorted(diag_letters))
+        train_diag, valid_diag, test_diag, train_dataset, _, _ = prepare_adni(
+            args=args, task='diag', modeltype=modeltype_diag,
+        )
+        all_train.append(train_diag)
+        all_valid.append(valid_diag)
+        all_test.append(test_diag)
+        n_diag_classes = get_adni_n_classes(args)
+        criterion.append(torch.nn.CrossEntropyLoss())
+        train_weights.append(1.0)
+        diag_mods = [letter + '_DIAG' for letter in diag_letters]
+        assert len(diag_mods) > 1, "At least two modalities per task!"
+        modalities_per_task.append(diag_mods)
+        if args.fusion_model in ['fusemoe', 'flexmoe']:
+            logit_dim = len(diag_mods) * args.embed_dim
+        else:
+            logit_dim = len(diag_mods) * (len(diag_mods) - 1) * args.perceiver_dim
+        logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, n_diag_classes)))
+        all_encoders['DIAG'] = ADNIEncoder(
+            args=args,
+            device=device,
+            modalities=modalities,
+            input_dims=get_adni_input_dims(args),
+        )
+
     all_modalities = {}
     if args.shared_modality_encoders:
         all_modalities['Text'] = InputModality(
@@ -388,6 +420,14 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
             num_freq_bands=6,
             max_freq=1
         )
+        for adni_letter in ('I', 'G', 'C', 'B'):
+            all_modalities[adni_letter] = InputModality(
+                name=adni_letter,
+                input_channels=args.embed_dim,
+                input_axis=1,
+                num_freq_bands=6,
+                max_freq=1,
+            )
     else:
         all_modalities['Text_IHM'] = InputModality(
             name='Text_IHM',
@@ -543,6 +583,15 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
             num_freq_bands=6,
             max_freq=1
         )
+        for adni_letter in ('I', 'G', 'C', 'B'):
+            adni_key = f'{adni_letter}_DIAG'
+            all_modalities[adni_key] = InputModality(
+                name=adni_key,
+                input_channels=args.embed_dim,
+                input_axis=1,
+                num_freq_bands=6,
+                max_freq=1,
+            )
 
     return (
         all_train,

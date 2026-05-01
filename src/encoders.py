@@ -7,6 +7,72 @@ from src.layer import RelTemporalEncoding, TransformerBlock
 import pdb
 
 
+class _PatchEmbeddings(nn.Module):
+    """Port of Flex-MoE/models.py:PatchEmbeddings.
+
+    Slices a (B, feature_size) tensor into ``num_patches`` patches and projects
+    each patch to ``embed_dim``. Pads the feature dim with zeros to make
+    feature_size divisible by num_patches.
+    """
+
+    def __init__(self, feature_size: int, num_patches: int, embed_dim: int):
+        super().__init__()
+        patch_size = math.ceil(feature_size / num_patches)
+        self.pad_size = num_patches * patch_size - feature_size
+        self.num_patches = num_patches
+        self.feature_size = feature_size
+        self.patch_size = patch_size
+        self.projection = nn.Linear(patch_size, embed_dim)
+
+    def forward(self, x):
+        x = F.pad(x, (0, self.pad_size)).view(x.shape[0], self.num_patches, self.patch_size)
+        return self.projection(x)
+
+
+class ADNIEncoder(nn.Module):
+    """Per-modality patch encoder for the ADNI diagnosis task.
+
+    Mirrors ``EMBEDEncoder`` interface: ``forward`` accepts raw modality
+    tensors and a list of suffixed modality keys (e.g. ``I_DIAG``) and returns
+    a dict ``{key: (B, num_patches, embed_dim)}``.
+    """
+
+    _LETTERS = ("I", "G", "C", "B")
+
+    def __init__(self, args, device, modalities, input_dims):
+        super().__init__()
+        self.args = args
+        self.device = device
+        # ``modalities`` may be the global set or the per-task list. We only build
+        # encoders for letters whose input dim is provided.
+        self.input_dims = dict(input_dims)
+        num_patches = getattr(args, "num_patches", 16)
+        embed_dim = args.embed_dim
+        self.patch_encoders = nn.ModuleDict()
+        for letter in self._LETTERS:
+            if letter in self.input_dims:
+                self.patch_encoders[letter] = _PatchEmbeddings(
+                    feature_size=int(self.input_dims[letter]),
+                    num_patches=num_patches,
+                    embed_dim=embed_dim,
+                ).to(device)
+
+    def forward(self, mod_tensors, modalities, task="DIAG"):
+        """``mod_tensors``: dict ``{letter: (B, feat_dim)}`` from the collate fn.
+
+        ``modalities``: list of suffixed keys this task expects, e.g.
+        ``['I_DIAG', 'G_DIAG', 'C_DIAG', 'B_DIAG']``.
+        """
+        embeddings = {}
+        for key in modalities:
+            letter, _, _ = key.partition("_")
+            if letter not in self.patch_encoders:
+                continue
+            tensor = mod_tensors[letter].to(self.device)
+            embeddings[key] = self.patch_encoders[letter](tensor)
+        return embeddings
+
+
 class multiTimeAttention(nn.Module):
     "mTAND module"
     def __init__(self, input_dim, device, nhidden=16,

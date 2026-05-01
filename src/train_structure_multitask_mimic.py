@@ -130,56 +130,25 @@ def _run_test_loop(
         rets = [[], [], [], []]
         test_log = {}
         print(f"\n{header_label}...")
-        task_mods_dict = {
-            'ihm_mod': args.ihm_mod,
-            'los_mod': args.los_mod,
-            'pheno_mod': args.pheno_mod,
-            'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
-            'ihm-los_mod': args.ihm_mod+'_'+args.los_mod,
-            'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
-            'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
-            'readmission_mod': args.rad_mod,
-            'mortality_mod': args.mor_mod,
-            'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
-            'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
-            'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
-            'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
-            'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
-            'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
-            'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
-            'birads_mod': args.birads_mod,
-            'risk_mod': args.risk_mod,
-            'density_mod': args.density_mod,
-            'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-            'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
-            'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
-            'ihm-density_mod': args.ihm_mod+'_'+args.density_mod,
-            'ihm-los-birads_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.birads_mod,
-            'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
-            'birads-density_mod': args.birads_mod+'_'+args.density_mod,
-            'risk-density_mod': args.risk_mod+'_'+args.density_mod,
-            'ihm-los-pheno-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-            'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
-        }
-        task_mod_key = f'{args.task}_mod'
+        task_mods = mods_for_task(args)
         if args.transfer_moe:
-            out_fname = f"{args.results_dir}/flame/multitask/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/flame/multitask/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_transfer_moe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.lora:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.fine_tune:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.linear_probe:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.cross_method == 'flexmoe':
-            out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.txt"
         else:
             if args.shared_modality_encoders:
                 if args.multitask_moe:
-                    out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
                 else:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
             else:
-                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
         os.makedirs(os.path.dirname(out_fname), exist_ok=True)
         f = open(out_fname, 'a')
         f.write(f"\n################## {header_label} ##################\n")
@@ -229,6 +198,11 @@ def _run_test_loop(
                     embeddings = encoder_to_test[task](
                         embed_cc=embed_cc, embed_mlo=embed_mlo, embed_2dcc=embed_2dcc, embed_2dmlo=embed_2dmlo, all_views=all_views, modalities=modalities[int(ii)], task=task
                     )
+                elif task.lower() == 'diag':
+                    _, label, mod_tensors = jj
+                    embeddings = encoder_to_test[task](
+                        mod_tensors=mod_tensors, modalities=modalities[int(ii)], task=task,
+                    )
                 indict = {}
                 for i in range(0, len(modalities[ii])):
                     indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
@@ -239,7 +213,7 @@ def _run_test_loop(
                 out, balance_loss = model_to_test(indict=indict, task=task) if args.lora else model_to_test(indict, task=task)
                 if 'PHENO' in modalities[int(ii)][0]:
                     logit = torch.nn.functional.sigmoid(out)
-                elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower() or 'diag' in modalities[int(ii)][0].lower():
                     logit = torch.nn.functional.softmax(out, dim=-1)
                 else:
                     logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
@@ -262,7 +236,7 @@ def _run_test_loop(
                 eval_vals['hamming_accuracy'] = 1.0 - hamming_loss(all_label, all_pred)
                 test_log[f'{log_prefix}/{task}/auc_mean'] = float(eval_vals['auc_scores'].mean())
                 test_log[f'{log_prefix}/{task}/auprc_mean'] = float(np.asarray(eval_vals['auprc_scores']).mean())
-            elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+            elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower() or 'diag' in modalities[int(ii)][0].lower():
                 eval_vals = metrics_multiclass(all_label, all_logits, verbose=0)
                 all_pred = np.argmax(all_logits, axis=1)
                 print("label dist:", np.bincount(all_label.astype(int)))
@@ -418,6 +392,7 @@ def train(
             'ihm': 'ihm_mod', 'los': 'los_mod', 'pheno': 'pheno_mod',
             'mortality': 'mor_mod', 'readmission': 'rad_mod',
             'birads': 'birads_mod', 'risk': 'risk_mod', 'density': 'density_mod',
+            'diag': 'diag_mod',
         }
         mods_str = "_".join([
             getattr(args, _task_to_mod_arg.get(t, f"{t}_mod"), "?")
@@ -504,7 +479,12 @@ def train(
                     embeddings = encoder[task](
                         embed_cc=embed_cc, embed_mlo=embed_mlo, embed_2dcc=embed_2dcc, embed_2dmlo=embed_2dmlo, all_views=all_views, modalities=modalities[int(ii)], task=task
                     )
-                
+                elif task.lower() == 'diag':
+                    _, label, mod_tensors = js[ii]
+                    embeddings = encoder[task](
+                        mod_tensors=mod_tensors, modalities=modalities[int(ii)], task=task,
+                    )
+
                 if args.lora:
                     model.base_model.model.model.to_logits = model.base_model.model.model.to_logitslist[int(ii)]
                 else:
@@ -528,7 +508,7 @@ def train(
                     out, balance_loss = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                     if 'PHENO' in modalities[int(ii)][0]:
                         loss=criterion[int(ii)](out, label.float().to(device))
-                    elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                    elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower() or 'diag' in modalities[int(ii)][0].lower():
                         loss=criterion[int(ii)](out, label.to(device))
                     else:
                         loss=criterion[int(ii)](out, label.to(device))
@@ -614,6 +594,11 @@ def train(
                         embeddings = encoder[task](
                             embed_cc=embed_cc, embed_mlo=embed_mlo, embed_2dcc=embed_2dcc, embed_2dmlo=embed_2dmlo, all_views=all_views, modalities=modalities[int(ii)], task=task
                         )
+                    elif task.lower() == 'diag':
+                        _, label, mod_tensors = jj
+                        embeddings = encoder[task](
+                            mod_tensors=mod_tensors, modalities=modalities[int(ii)], task=task,
+                        )
                     if args.lora:
                         model.base_model.model.model.to_logits = model.base_model.model.model.to_logitslist[ii]
                     else:
@@ -631,12 +616,12 @@ def train(
                         for modal in indict:
                             stuffs.append(torch.mean(indict[modal], dim=1))
                         origs = torch.cat(stuffs, dim=1)
-                        val_loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs) 
+                        val_loss = criterion[int(ii)](out, label.to(device)) + recon_weight * recon_criterion(rec, origs)
                     else:
                         out, balance_loss = model(indict=indict, task=task) if args.lora else model(indict, task=task)
                         if 'PHENO' in modalities[int(ii)][0]:
                             val_loss = criterion[int(ii)](out, label.float().to(device))
-                        elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                        elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower() or 'diag' in modalities[int(ii)][0].lower():
                             val_loss = criterion[int(ii)](out, label.to(device))
                         else:
                             val_loss = criterion[int(ii)](out, label.to(device))
@@ -649,7 +634,7 @@ def train(
 
                     if 'PHENO' in modalities[int(ii)][0]:
                         logit = torch.nn.functional.sigmoid(out)
-                    elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                    elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower() or 'diag' in modalities[int(ii)][0].lower():
                         logit = torch.nn.functional.softmax(out, dim=-1)
                     else:
                         logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
@@ -666,7 +651,7 @@ def train(
                     eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
                     accs += eval_vals['auc_scores'].mean()
                     val_log[f'val/{task}/auc_mean'] = float(eval_vals['auc_scores'].mean())
-                elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower() or 'diag' in modalities[int(ii)][0].lower():
                     eval_vals = metrics_multiclass(all_label, all_logits, verbose=0)
                     accs += eval_vals['ave_auc_macro']
                     val_log[f'val/{task}/ave_auc_macro'] = float(eval_vals['ave_auc_macro'])
