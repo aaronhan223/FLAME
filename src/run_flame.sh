@@ -1,12 +1,12 @@
-export CUDA_VISIBLE_DEVICES=4
-SEEDS=(0 42 453 1002 10293)
+export CUDA_VISIBLE_DEVICES=6
+SEEDS=(42) #(0 42 453 1002 10293)
 EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
-TASK='diag'
+TASK='birads'
 GATING='laplace'
 BALANCE_LOSS_COEF='1.0'
-ALPHA='const_0.0'
+ALPHA='const_1.0'
 MOD_DROP_RATE='0.0'
 
 for SEED in "${SEEDS[@]}"; do
@@ -55,6 +55,7 @@ for SEED in "${SEEDS[@]}"; do
                 --alpha "${ALPHA}" \
                 --results_dir "${RESULTS_DIR}" \
                 --lr 0.0001 \
+                --use_wandb \
                 --weight_decay 0.1
 done
 
