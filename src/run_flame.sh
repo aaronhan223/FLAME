@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=1
 SEEDS=(0 42 453 1002 10293)
-EXPERTS=(3)
+EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
 TASK='ihm-risk'
