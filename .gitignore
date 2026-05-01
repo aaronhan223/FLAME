@@ -1,5 +1,9 @@
 checkpoints/
 checkpoints_copied/
+*.sif
+*.gz
+src/preprocess/adni
+src/rtfm
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
