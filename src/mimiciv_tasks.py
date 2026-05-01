@@ -287,6 +287,8 @@ def main():
         'density_mod': args.density_mod,
         'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
         'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
+        'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
+        'ihm-density_mod': args.ihm_mod+'_'+args.density_mod,
         'ihm-los-birads_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.birads_mod,
         'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
         'birads-density_mod': args.birads_mod+'_'+args.density_mod,
@@ -660,28 +662,28 @@ def main():
         modalities_per_task
     )
     if args.transfer_moe:
-        savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/flame/multitask/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.lora:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fine_tune:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.linear_probe:
-        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
+        savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fusion_model=='flexmoe':
-        savedir = f'./checkpoints/flexmoe/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
+        savedir = f'./checkpoints/flexmoe/multitask/{args.task}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
         if args.shared_modality_encoders:
             if args.multitask_moe:
-                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
             else:
-                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         else:
-            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/{args.seed}/{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     if args.num_train_epochs>0:
         torch.save(model,savedir)

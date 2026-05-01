@@ -1,6 +1,6 @@
 import torch
 from src.eval_scripts.performance import metrics_multilabel, metrics_multiclass
-from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, accuracy_score
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score, accuracy_score, hamming_loss
 from tqdm import tqdm
 import numpy as np
 import random
@@ -103,6 +103,208 @@ def _grad_l2_norm(parameters):
     return total_sq_norm ** 0.5
 
 
+def _run_test_loop(
+    model_to_test,
+    encoder_to_test,
+    test,
+    modalities,
+    args,
+    setting,
+    device,
+    missing_embeddings,
+    getattentionmap,
+    header_label,
+    log_prefix='test',
+    wandb_extra=None,
+    use_wandb=False,
+    result_filename_prefix='result',
+):
+    """Run the test evaluation loop, append results to the per-config output file,
+    and (optionally) log metrics to wandb. Returns rets (attention maps when
+    ``getattentionmap`` is True, otherwise empty per-task lists)."""
+    task_names = {'MOR': 'mortality', 'RAD': 'readmission'}
+    model_to_test.eval()
+    for enc in encoder_to_test.values():
+        enc.eval()
+    with torch.no_grad():
+        rets = [[], [], [], []]
+        test_log = {}
+        print(f"\n{header_label}...")
+        task_mods_dict = {
+            'ihm_mod': args.ihm_mod,
+            'los_mod': args.los_mod,
+            'pheno_mod': args.pheno_mod,
+            'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
+            'ihm-los_mod': args.ihm_mod+'_'+args.los_mod,
+            'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
+            'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
+            'readmission_mod': args.rad_mod,
+            'mortality_mod': args.mor_mod,
+            'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
+            'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
+            'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
+            'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
+            'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
+            'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
+            'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
+            'birads_mod': args.birads_mod,
+            'risk_mod': args.risk_mod,
+            'density_mod': args.density_mod,
+            'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
+            'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
+            'ihm-risk_mod': args.ihm_mod+'_'+args.risk_mod,
+            'ihm-density_mod': args.ihm_mod+'_'+args.density_mod,
+            'ihm-los-birads_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.birads_mod,
+            'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
+            'birads-density_mod': args.birads_mod+'_'+args.density_mod,
+            'risk-density_mod': args.risk_mod+'_'+args.density_mod,
+            'ihm-los-pheno-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
+            'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
+        }
+        task_mod_key = f'{args.task}_mod'
+        if args.transfer_moe:
+            out_fname = f"{args.results_dir}/flame/multitask/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        elif args.lora:
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        elif args.fine_tune:
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        elif args.linear_probe:
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        elif args.cross_method == 'flexmoe':
+            out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        else:
+            if args.shared_modality_encoders:
+                if args.multitask_moe:
+                    out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                else:
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            else:
+                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        os.makedirs(os.path.dirname(out_fname), exist_ok=True)
+        f = open(out_fname, 'a')
+        f.write(f"\n################## {header_label} ##################\n")
+        f.write(setting + "  \n")
+        print(f"\nWriting results to {out_fname}\n")
+        for ii in tqdm(range(len(test))):
+            eval_vals = {}
+            eval_logits = []
+            eval_labels = []
+            task = modalities[int(ii)][0].split('_')[1]
+
+            if args.lora:
+                model_to_test.base_model.model.model.to_logits = model_to_test.base_model.model.model.to_logitslist[ii]
+            else:
+                model_to_test.to_logits = model_to_test.to_logitslist[ii]
+            for jj in tqdm(test[ii]):
+                if task in ['IHM', 'PHENO', 'LOS']:
+                    ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
+                    embeddings = encoder_to_test[task](
+                        x_ts=ts_input_sequences,
+                        x_ts_mask=ts_mask_sequences,
+                        ts_tt_list=ts_tt,
+                        input_ids_sequences=input_ids_sequences,
+                        attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,
+                        note_time_mask_list=note_time_mask,
+                        cxr_feats=cxr_feats,
+                        cxr_time=cxr_time,
+                        cxr_time_mask=cxr_time_mask,
+                        ecg_feats=ecg_feats,
+                        ecg_time=ecg_time,
+                        ecg_time_mask=ecg_time_mask, labels=label, reg_ts=reg_ts,
+                        cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
+                    )
+                elif task in ['MOR', 'RAD']:
+                    codes, types, timestamps, ages, genders, ethnicities, label = jj['codes'], jj['types'], jj['timestamps'], jj['age'], jj['gender'], jj['ethnicity'], jj[task_names[task]].long()
+                    embeddings = encoder_to_test[task](
+                        codes=codes,
+                        types=types,
+                        timestamps=timestamps,
+                        ages=ages,
+                        genders=genders,
+                        ethnicities=ethnicities,
+                        modalities=modalities[int(ii)]
+                    )
+                elif task.lower() in ['birads', 'risk', 'density']:
+                    idx, label, embed_2dcc, embed_2dmlo, embed_cc, embed_mlo, all_views = jj
+                    embeddings = encoder_to_test[task](
+                        embed_cc=embed_cc, embed_mlo=embed_mlo, embed_2dcc=embed_2dcc, embed_2dmlo=embed_2dmlo, all_views=all_views, modalities=modalities[int(ii)], task=task
+                    )
+                indict = {}
+                for i in range(0, len(modalities[ii])):
+                    indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
+                indict, masked_keys = drop_modalities(indict, args.modality_drop_rate)
+                if args.modality_drop_rate > 0:
+                    indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys)
+
+                out, balance_loss = model_to_test(indict=indict, task=task) if args.lora else model_to_test(indict, task=task)
+                if 'PHENO' in modalities[int(ii)][0]:
+                    logit = torch.nn.functional.sigmoid(out)
+                elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                    logit = torch.nn.functional.softmax(out, dim=-1)
+                else:
+                    logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
+                logits = logit.cpu().numpy()
+                labels = label.cpu().numpy()
+                eval_logits += logits.tolist()
+                eval_labels += labels.tolist()
+                if getattentionmap:
+                    rets[ii].append(model_to_test.attns)
+            all_logits = np.array(eval_logits)
+            all_label = np.array(eval_labels)
+
+            if 'PHENO' in modalities[int(ii)][0]:
+                all_pred = np.where(all_logits > 0.5, 1, 0)
+                eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
+                eval_vals['micro_f1'] = f1_score(all_label, all_pred, average='micro')
+                eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
+                eval_vals['weighted_f1'] = f1_score(all_label, all_pred, average='weighted')
+                eval_vals['subset_accuracy'] = accuracy_score(all_label, all_pred)
+                eval_vals['hamming_accuracy'] = 1.0 - hamming_loss(all_label, all_pred)
+                test_log[f'{log_prefix}/{task}/auc_mean'] = float(eval_vals['auc_scores'].mean())
+                test_log[f'{log_prefix}/{task}/auprc_mean'] = float(np.asarray(eval_vals['auprc_scores']).mean())
+            elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                eval_vals = metrics_multiclass(all_label, all_logits, verbose=0)
+                all_pred = np.argmax(all_logits, axis=1)
+                print("label dist:", np.bincount(all_label.astype(int)))
+                print("pred dist :", np.bincount(all_pred.astype(int)))
+                eval_vals['micro_f1'] = f1_score(all_label, all_pred, average='micro')
+                eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
+                eval_vals['weighted_f1'] = f1_score(all_label, all_pred, average='weighted')
+                eval_vals['accuracy'] = accuracy_score(all_label, all_pred)
+                test_log[f'{log_prefix}/{task}/ave_auc_macro'] = float(eval_vals['ave_auc_macro'])
+                if eval_vals.get('ave_auprc_macro') is not None:
+                    test_log[f'{log_prefix}/{task}/ave_auprc_macro'] = float(eval_vals['ave_auprc_macro'])
+            else:
+                all_pred = np.where(all_logits > 0.5, 1, 0)
+                eval_val = roc_auc_score(np.array(eval_labels), np.array(eval_logits))
+                eval_vals['auc'] = eval_val
+                (precisions, recalls, thresholds) = precision_recall_curve(np.array(eval_labels), np.array(eval_logits))
+                eval_val = auc(recalls, precisions)
+                eval_vals['auprc'] = eval_val
+                eval_val = f1_score(np.array(eval_labels), all_pred)
+                eval_vals['f1'] = eval_val
+                eval_vals['accuracy'] = accuracy_score(all_label, all_pred)
+                test_log[f'{log_prefix}/{task}/auc'] = float(eval_vals['auc'])
+
+            for metric_name, metric_val in eval_vals.items():
+                scalar_val = _to_float_if_scalar(metric_val)
+                if scalar_val is not None:
+                    test_log[f'{log_prefix}/{task}/{metric_name}'] = scalar_val
+
+            f.write(f"------Task {ii}------\n")
+            for k, v in eval_vals.items():
+                f.write(k + ': {}'.format(v))
+                f.write('\n')
+                f.write('\n')
+        f.close()
+        if use_wandb:
+            log_dict = {**test_log}
+            if wandb_extra:
+                log_dict.update(wandb_extra)
+            wandb.log(log_dict)
+    return rets
+
+
 def train(
     model,
     trains,
@@ -155,6 +357,8 @@ def train(
 
 
     missing_embeddings = torch.nn.ParameterDict()
+    testaccs = []
+    rets = [[], [], [], []]
     # --- LoRA Setup ---
     # lora_config = LoraConfig(
     #     task_type=TaskType.FEATURE_EXTRACTION,  # or SEQ_CLS, CAUSAL_LM, etc. depending on model type
@@ -501,186 +705,36 @@ def train(
             wandb.log({**train_log, **val_log, 'epoch': ep})
         # import pdb; pdb.set_trace()
         ### Testing function ###
-        # model=torch.load(savedir).to(device)
-        if (ep+1)%10==0 or ep==args.num_train_epochs-1:    
-            model.eval()
-            for enc_k, enc in encoder.items():
-                # encoder[enc_k]=torch.load(f'{savedir.split(".pt")[0]}_{enc_k}_encoder.pt').to(device)
-                encoder[enc_k].eval()
-            testaccs=[]
-            with torch.no_grad():
-                rets=[[],[],[],[]]
-                test_log = {}
-                print("\nTest...")
-                task_mods_dict = {
-                    'ihm_mod': args.ihm_mod,
-                    'los_mod': args.los_mod,
-                    'pheno_mod': args.pheno_mod,
-                    'ihm-los-pheno_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod,
-                    'ihm-los_mod': args.ihm_mod+'_'+args.los_mod,
-                    'ihm-pheno_mod': args.ihm_mod+'_'+args.pheno_mod,
-                    'los-pheno_mod': args.los_mod+'_'+args.pheno_mod,
-                    'readmission_mod': args.rad_mod,
-                    'mortality_mod': args.mor_mod,
-                    'mortality-readmission_mod': args.mor_mod+'_'+args.rad_mod,
-                    'ihm-mortality_mod': args.ihm_mod+'_'+args.mor_mod,
-                    'los-readmission_mod': args.los_mod+'_'+args.rad_mod,
-                    'ihm-readmission_mod': args.ihm_mod+'_'+args.rad_mod,
-                    'los-mortality_mod': args.los_mod+'_'+args.mor_mod,
-                    'ihm-los-mortality_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod,
-                    'ihm-los-mortality-readmission_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.mor_mod+'_'+args.rad_mod,
-                    'birads_mod': args.birads_mod,
-                    'risk_mod': args.risk_mod,
-                    'density_mod': args.density_mod,
-                    'birads-risk-density_mod': args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-                    'ihm-birads_mod': args.ihm_mod+'_'+args.birads_mod,
-                    'ihm-los-birads_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.birads_mod,
-                    'birads-risk_mod': args.birads_mod+'_'+args.risk_mod,
-                    'birads-density_mod': args.birads_mod+'_'+args.density_mod,
-                    'risk-density_mod': args.risk_mod+'_'+args.density_mod,
-                    'ihm-los-pheno-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod,
-                    'ihm-los-pheno-mortality-readmission-birads-risk-density_mod': args.ihm_mod+'_'+args.los_mod+'_'+args.pheno_mod+'_'+args.mor_mod+'_'+args.rad_mod+'_'+args.birads_mod+'_'+args.risk_mod+'_'+args.density_mod
-                }
-                task_mod_key = f'{args.task}_mod'
-                if args.transfer_moe:
-                    out_fname = f"{args.results_dir}/flame/multitask/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_transfer_moe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-                    f = open(out_fname, 'a')
-                elif args.lora:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-                    f = open(out_fname, 'a')
-                elif args.fine_tune:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-                    f = open(out_fname, 'a')
-                elif args.linear_probe:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-                    f = open(out_fname, 'a')
-                elif args.cross_method=='flexmoe':
-                    out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods_dict[task_mod_key]}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-                    f = open(out_fname, 'a')
-                else:
-                    if args.shared_modality_encoders:
-                        if args.multitask_moe:
-                            out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                        else:
-                            out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/result_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                    else:
-                        out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/result_{args.task}_{task_mods_dict[task_mod_key]}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
-                    os.makedirs(os.path.dirname(out_fname), exist_ok=True)
-                    f = open(out_fname, 'a')
-                f.write(f"\n################## Epoch {ep} ##################\n")
-                f.write(setting + "  \n")
-                print(f"\nWriting results to {out_fname}\n")
-                # import pdb; pdb.set_trace()
-                for ii in tqdm(range(len(test))):
-                    eval_vals={}
-                    eval_logits = []
-                    eval_labels = []
-                    task = modalities[int(ii)][0].split('_')[1]
-                    
-                    if args.lora:
-                        model.base_model.model.model.to_logits = model.base_model.model.model.to_logitslist[ii]
-                    else:
-                        model.to_logits=model.to_logitslist[ii]
-                    for jj in tqdm(test[ii]):
-                        if task in ['IHM', 'PHENO', 'LOS']:
-                            ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts, input_ids_sequences, attn_mask_sequences, text_emb, note_time, note_time_mask, cxr_feats, cxr_time, cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask, label, cxr_missing, text_missing, ecg_missing = jj
-                            embeddings = encoder[task](
-                                x_ts=ts_input_sequences, \
-                                x_ts_mask=ts_mask_sequences,\
-                                ts_tt_list=ts_tt,\
-                                input_ids_sequences=input_ids_sequences,\
-                                attn_mask_sequences=attn_mask_sequences, text_emb=text_emb, note_time_list=note_time,\
-                                note_time_mask_list=note_time_mask,\
-                                cxr_feats=cxr_feats,\
-                                cxr_time=cxr_time, \
-                                cxr_time_mask=cxr_time_mask,\
-                                ecg_feats=ecg_feats,\
-                                ecg_time=ecg_time, \
-                                ecg_time_mask=ecg_time_mask,labels=label,reg_ts=reg_ts,\
-                                cxr_missing=cxr_missing, text_missing=text_missing, ecg_missing=ecg_missing, modalities=modalities[int(ii)]
-                            )
-                        elif task in ['MOR', 'RAD']:
-                            codes, types, timestamps, ages, genders, ethnicities, label = jj['codes'], jj['types'], jj['timestamps'], jj['age'], jj['gender'], jj['ethnicity'], jj[task_names[task]].long()
-                            embeddings = encoder[task](
-                                codes=codes,
-                                types=types,
-                                timestamps=timestamps,
-                                ages=ages,
-                                genders=genders,
-                                ethnicities=ethnicities,
-                                modalities=modalities[int(ii)]
-                            )
-                        elif task.lower() in ['birads', 'risk', 'density']:
-                            idx, label, embed_2dcc, embed_2dmlo, embed_cc, embed_mlo, all_views = jj
-                            embeddings = encoder[task](
-                                embed_cc=embed_cc, embed_mlo=embed_mlo, embed_2dcc=embed_2dcc, embed_2dmlo=embed_2dmlo, all_views=all_views, modalities=modalities[int(ii)], task=task
-                            )
-                        indict={}
-                        for i in range(0, len(modalities[ii])): # for each modality within that task
-                            indict[modalities[ii][i]] = embeddings[modalities[ii][i]].float().to(device)
-                        indict, masked_keys = drop_modalities(indict, args.modality_drop_rate)
-                        if args.modality_drop_rate > 0:
-                            indict = replace_missing_embeddings(indict, missing_embeddings, masked_keys=masked_keys)
-                        
-                        out, balance_loss = model(indict=indict, task=task) if args.lora else model(indict, task=task)
-                        if 'PHENO' in modalities[int(ii)][0]:
-                            logit = torch.nn.functional.sigmoid(out)
-                        elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
-                            logit = torch.nn.functional.softmax(out, dim=-1)
-                        else:
-                            logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
-                        logits = logit.cpu().numpy()
-                        labels = label.cpu().numpy()
-                        eval_logits += logits.tolist()
-                        eval_labels += labels.tolist()
-                        if getattentionmap:
-                            rets[ii].append(model.attns)
-                    all_logits = np.array(eval_logits)
-                    all_label = np.array(eval_labels)
-                        
-                    if 'PHENO' in modalities[int(ii)][0]:
-                        all_pred = np.where(all_logits > 0.5, 1, 0)
-                        eval_vals = metrics_multilabel(all_label, all_logits, verbose=0)
-                        eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
-                        test_log[f'test/{task}/auc_mean'] = float(eval_vals['auc_scores'].mean())
-                    elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
-                        eval_vals = metrics_multiclass(all_label, all_logits, verbose=0)
-                        all_pred = np.argmax(all_logits, axis=1)   # shape (N,)
-                        print("label dist:", np.bincount(all_label.astype(int)))
-                        print("pred dist :", np.bincount(all_pred.astype(int)))
-                        eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
-                        eval_vals['accuracy'] = accuracy_score(all_label, all_pred)
-                        test_log[f'test/{task}/ave_auc_macro'] = float(eval_vals['ave_auc_macro'])
-                    else:
-                        all_pred = np.where(all_logits > 0.5, 1, 0)
-                        eval_val = roc_auc_score(np.array(eval_labels), np.array(eval_logits))
-                        eval_vals['auc'] = eval_val
-                        (precisions, recalls, thresholds) = precision_recall_curve(np.array(eval_labels), np.array(eval_logits))
-                        eval_val = auc(recalls, precisions)
-                        eval_vals['auprc'] = eval_val
-                        eval_val = f1_score(np.array(eval_labels), all_pred)
-                        eval_vals['f1'] = eval_val
-                        eval_vals['accuracy'] = accuracy_score(all_label, all_pred)
-                        test_log[f'test/{task}/auc'] = float(eval_vals['auc'])
+        if (ep+1)%10==0 or ep==args.num_train_epochs-1:
+            rets = _run_test_loop(
+                model, encoder, test, modalities, args, setting, device,
+                missing_embeddings, getattentionmap,
+                header_label=f"Epoch {ep}",
+                log_prefix='test',
+                wandb_extra={'epoch': ep},
+                use_wandb=use_wandb,
+            )
 
-                    for metric_name, metric_val in eval_vals.items():
-                        scalar_val = _to_float_if_scalar(metric_val)
-                        if scalar_val is not None:
-                            test_log[f'test/{task}/{metric_name}'] = scalar_val
-                    
-                    f.write(f"------Task {ii}------\n")
-                    for k, v in eval_vals.items():
-                        f.write(k+': {}'.format(v))
-                        f.write('\n')
-                        f.write('\n')
-                f.close()
-                if use_wandb:
-                    wandb.log({**test_log, 'epoch': ep})
+    # --- Final test run on best saved model ---
+    if args.num_train_epochs > 0 and savedir and os.path.exists(savedir):
+        print('\nLoading best model from checkpoint for final test run...')
+        moe_diag.remove_hooks()
+        best_model = torch.load(savedir, map_location=device).to(device)
+        best_encoder = {}
+        for ii in range(len(modalities)):
+            task = modalities[int(ii)][0].split('_')[1]
+            enc_path = f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            best_encoder[task] = torch.load(enc_path, map_location=device).to(device)
+        rets = _run_test_loop(
+            best_model, best_encoder, test, modalities, args, setting, device,
+            missing_embeddings, getattentionmap,
+            header_label="Final Best Model Test",
+            log_prefix='best_test',
+            wandb_extra=None,
+            use_wandb=use_wandb,
+            result_filename_prefix='best_model_results',
+        )
+
     if use_wandb and wandb_run_started_here:
         wandb.finish()
     moe_diag.close()

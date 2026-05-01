@@ -753,6 +753,253 @@ def plot_expert_energy_curves(model, output_dir):
     print(f"  Expert energy data saved: {json_path}")
 
 
+def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
+                                   args, device, output_dir, max_batches=5):
+    """Cumulative spectral energy of expert weights, weighted by *real test
+    activations* — reveals which ranks the network actually uses.
+
+    For every nn.Linear inside an expert, accumulate the input second moment
+    `Cx = E[xxᵀ]` over `max_batches` test forward passes, then for `W = UΣVᵀ`:
+
+        E_data(k)   = Σᵢ≤k σᵢ² · vᵢᵀ Cx vᵢ  /  Σᵢ σᵢ² · vᵢᵀ Cx vᵢ
+        E_weight(k) = Σᵢ≤k σᵢ²              /  Σᵢ σᵢ²
+
+    The weight-only curve treats every direction equally (Frobenius energy);
+    the data-aware curve weights direction i by how much the test data excites
+    it, so it captures `‖Wx‖` energy on the actual distribution. The gap
+    between the two curves is exactly the "functional rank" intuition.
+
+    Conv weights are skipped (would need im2col-style unfold to map cleanly).
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not available, skipping data-aware energy plot")
+        return
+
+    # --- Install input-side covariance hooks on every expert Linear ---
+    cx_accum = {}   # name -> [in_dim, in_dim] running sum of xᵀx
+    n_samples = {}  # name -> total tokens seen
+    weights = {}    # name -> W tensor (cpu, fp32)
+    hooks = []
+
+    for name, module in model.named_modules():
+        if '.moe.experts.' not in name:
+            continue
+        if not isinstance(module, torch.nn.Linear):
+            continue
+        weights[name] = module.weight.detach().float().cpu()
+        cx_accum[name] = None
+        n_samples[name] = 0
+
+        def make_hook(nm):
+            def hook_fn(mod, inp, out):
+                with torch.no_grad():
+                    x = inp[0].float().detach()
+                    x = x.reshape(-1, x.shape[-1])
+                    xtx = (x.T @ x).cpu()
+                    if cx_accum[nm] is None:
+                        cx_accum[nm] = xtx
+                    else:
+                        cx_accum[nm] += xtx
+                    n_samples[nm] += x.shape[0]
+            return hook_fn
+        hooks.append(module.register_forward_hook(make_hook(name)))
+
+    if not weights:
+        print("No expert Linear layers found for data-aware energy.")
+        return
+
+    # --- Drive forward passes (logic mirrors diagnose_expert_contribution) ---
+    model.eval()
+    for enc in encoder.values():
+        enc.eval()
+
+    task_names = {'MOR': 'mortality', 'RAD': 'readmission'}
+    with torch.no_grad():
+        for ii in range(len(all_test)):
+            task = modalities_per_task[int(ii)][0].split('_')[1]
+            model.to_logits = model.to_logitslist[ii]
+            batch_count = 0
+            for jj in all_test[ii]:
+                if batch_count >= max_batches:
+                    break
+                try:
+                    if task in ['IHM', 'PHENO', 'LOS']:
+                        (ts_input_sequences, ts_mask_sequences, ts_tt, reg_ts,
+                         input_ids_sequences, attn_mask_sequences, text_emb,
+                         note_time, note_time_mask, cxr_feats, cxr_time,
+                         cxr_time_mask, ecg_feats, ecg_time, ecg_time_mask,
+                         label, cxr_missing, text_missing, ecg_missing) = jj
+                        data = {
+                            'ts_input_sequences': ts_input_sequences, 'ts_mask_sequences': ts_mask_sequences,
+                            'ts_tt': ts_tt, 'reg_ts': reg_ts,
+                            'input_ids_sequences': input_ids_sequences, 'attn_mask_sequences': attn_mask_sequences,
+                            'text_emb': text_emb, 'note_time': note_time, 'note_time_mask': note_time_mask,
+                            'cxr_feats': cxr_feats, 'cxr_time': cxr_time, 'cxr_time_mask': cxr_time_mask,
+                            'ecg_feats': ecg_feats, 'ecg_time': ecg_time, 'ecg_time_mask': ecg_time_mask,
+                            'label': label, 'cxr_missing': cxr_missing,
+                            'text_missing': text_missing, 'ecg_missing': ecg_missing,
+                        }
+                    elif task in ['BIRADS', 'RISK', 'DENSITY']:
+                        idx, label, embed_2dcc, embed_2dmlo, embed_cc, embed_mlo, all_views = jj
+                        data = {
+                            'embed_cc': embed_cc, 'embed_mlo': embed_mlo,
+                            'embed_2dcc': embed_2dcc, 'embed_2dmlo': embed_2dmlo,
+                            'all_views': all_views, 'label': label,
+                        }
+                    elif task in ['MOR', 'RAD']:
+                        data = {
+                            'codes': jj['codes'], 'types': jj['types'],
+                            'timestamps': jj['timestamps'], 'ages': jj['age'],
+                            'genders': jj['gender'], 'ethnicities': jj['ethnicity'],
+                            'label': jj[task_names[task]].long(),
+                        }
+                    else:
+                        continue
+
+                    for k_, v in data.items():
+                        if isinstance(v, torch.Tensor):
+                            data[k_] = v.to(device)
+
+                    if task in ['IHM', 'PHENO', 'LOS']:
+                        encoded = encoder[task](
+                            x_ts=data['ts_input_sequences'], x_ts_mask=data['ts_mask_sequences'],
+                            ts_tt_list=data['ts_tt'],
+                            input_ids_sequences=data['input_ids_sequences'],
+                            attn_mask_sequences=data['attn_mask_sequences'],
+                            text_emb=data['text_emb'],
+                            note_time_list=data['note_time'], note_time_mask_list=data['note_time_mask'],
+                            cxr_feats=data['cxr_feats'], cxr_time=data['cxr_time'], cxr_time_mask=data['cxr_time_mask'],
+                            ecg_feats=data['ecg_feats'], ecg_time=data['ecg_time'], ecg_time_mask=data['ecg_time_mask'],
+                            labels=data['label'], reg_ts=data['reg_ts'],
+                            cxr_missing=data['cxr_missing'], text_missing=data['text_missing'],
+                            ecg_missing=data['ecg_missing'],
+                            modalities=modalities_per_task[ii],
+                        )
+                    elif task in ['BIRADS', 'RISK', 'DENSITY']:
+                        encoded = encoder[task](
+                            embed_cc=data['embed_cc'], embed_mlo=data['embed_mlo'],
+                            embed_2dcc=data['embed_2dcc'], embed_2dmlo=data['embed_2dmlo'],
+                            all_views=data['all_views'],
+                            modalities=modalities_per_task[ii], task=task,
+                        )
+                    elif task in ['MOR', 'RAD']:
+                        encoded = encoder[task](
+                            codes=data['codes'], types=data['types'],
+                            timestamps=data['timestamps'], ages=data['ages'],
+                            genders=data['genders'], ethnicities=data['ethnicities'],
+                            modalities=modalities_per_task[int(ii)],
+                        )
+
+                    indict = {}
+                    for i in range(len(modalities_per_task[ii])):
+                        indict[modalities_per_task[ii][i]] = encoded[modalities_per_task[ii][i]].float().to(device)
+                    model(indict, task=task)
+                except Exception as e:
+                    print(f"  Warning: batch failed in {task}: {e}")
+                    continue
+
+                batch_count += 1
+
+    for h in hooks:
+        h.remove()
+
+    # --- Compute weight-only and data-aware energy curves per layer ---
+    weight_curves = {}
+    data_curves = {}
+    rank_at_90 = {}  # name -> (k_weight, k_data)
+
+    for name, W in weights.items():
+        if cx_accum[name] is None or n_samples[name] == 0:
+            continue
+        Cx = cx_accum[name] / n_samples[name]
+        try:
+            U, S, Vh = torch.linalg.svd(W, full_matrices=False)
+        except Exception as e:
+            print(f"  SVD failed for {name}: {e}")
+            continue
+        V = Vh.T
+        # diag(Vᵀ Cx V) — projection energy of inputs onto each right singular vector
+        proj = torch.diagonal(V.T @ Cx @ V).clamp(min=0)
+        sigma2 = (S ** 2)
+        weight_energy = sigma2.numpy()
+        data_energy = (sigma2 * proj).numpy()
+
+        if weight_energy.sum() <= 0 or data_energy.sum() <= 0:
+            continue
+        w_cum = np.concatenate(([0.0], np.cumsum(weight_energy))) / weight_energy.sum() * 100
+        d_cum = np.concatenate(([0.0], np.cumsum(data_energy))) / data_energy.sum() * 100
+        weight_curves[name] = w_cum
+        data_curves[name] = d_cum
+
+        # k at which we cross 90% energy
+        kw = int(np.searchsorted(w_cum, 90.0))
+        kd = int(np.searchsorted(d_cum, 90.0))
+        rank_at_90[name] = (kw, kd, len(S))
+
+    if not data_curves:
+        print("No data-aware curves produced (no activations collected).")
+        return
+
+    # --- Plot: weight-only vs data-aware, side-by-side ---
+    short_names = _trim_common_prefix(list(data_curves.keys()))
+    n = len(data_curves)
+    show_labels = n <= 30
+    cmap = plt.get_cmap('viridis')
+
+    fig, (ax_w, ax_d) = plt.subplots(1, 2, figsize=(16, 6), sharey=True)
+    for i, (name, short) in enumerate(zip(data_curves.keys(), short_names)):
+        color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
+        ax_w.plot(range(len(weight_curves[name])), weight_curves[name],
+                  color=color, alpha=0.6, linewidth=1.0,
+                  label=short if show_labels else None)
+        ax_d.plot(range(len(data_curves[name])), data_curves[name],
+                  color=color, alpha=0.6, linewidth=1.0,
+                  label=short if show_labels else None)
+
+    for ax, title in [(ax_w, 'Weight-only (Frobenius)'),
+                      (ax_d, 'Data-aware (test activations)')]:
+        ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% energy')
+        ax.axhline(99, color='red', linestyle=':', alpha=0.5, label='99% energy')
+        ax.set_xlabel('Rank K')
+        ax.set_ylim(0, 105)
+        ax.grid(True, alpha=0.3)
+        ax.set_title(title)
+        ax.legend(fontsize=6 if show_labels else 9, loc='lower right',
+                  ncol=2 if show_labels else 1)
+    ax_w.set_ylabel('% Cumulative Energy in Top-K')
+    fig.suptitle(f'Expert Spectral Energy: Weight vs Data-aware ({n} layers, '
+                 f'{max(n_samples.values())} tokens)')
+    plt.tight_layout()
+
+    save_path = os.path.join(output_dir, 'expert_data_aware_energy.png')
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"  Data-aware energy plot saved: {save_path}")
+
+    # --- Summary table: rank to reach 90% energy, weight vs data ---
+    print(f"\n  Rank-at-90%-energy: weight-only -> data-aware (max rank)")
+    print(f"  {'layer':<70}  {'k_w':>5}  {'k_d':>5}  {'max':>5}  {'compress':>8}")
+    short_for_table = _trim_common_prefix(list(rank_at_90.keys()))
+    for (name, (kw, kd, mr)), short in zip(rank_at_90.items(), short_for_table):
+        ratio = (kw / kd) if kd > 0 else float('inf')
+        print(f"  {short:<70}  {kw:>5}  {kd:>5}  {mr:>5}  {ratio:>7.2f}x")
+
+    json_path = os.path.join(output_dir, 'expert_data_aware_energy.json')
+    with open(json_path, 'w') as f:
+        json.dump({
+            'weight_only': {n: c.tolist() for n, c in weight_curves.items()},
+            'data_aware': {n: c.tolist() for n, c in data_curves.items()},
+            'rank_at_90_pct': {n: {'weight': kw, 'data': kd, 'max': mr}
+                                for n, (kw, kd, mr) in rank_at_90.items()},
+            'tokens_per_layer': n_samples,
+        }, f, indent=2)
+    print(f"  Data-aware energy data saved: {json_path}")
+
+
 def compute_router_ranks(model):
     """Compute effective rank of router w_gate and w_noise matrices.
 
@@ -1087,6 +1334,15 @@ def main():
     print("  Expert Spectral Energy vs Rank")
     print(f"{'='*60}")
     plot_expert_energy_curves(model, extra_args.output_dir)
+
+    # --- Data-aware energy: which weight ranks the test data actually excites ---
+    print(f"\n{'='*60}")
+    print("  Data-Aware Spectral Energy (test activations)")
+    print(f"{'='*60}")
+    plot_data_aware_energy_curves(
+        model, all_encoders, all_test, modalities_per_task,
+        args, device, extra_args.output_dir, max_batches=10,
+    )
 
     # Parse ranks
     rank_values = []

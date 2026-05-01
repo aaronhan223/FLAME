@@ -7,14 +7,12 @@ export CUDA_VISIBLE_DEVICES=0
 # ============================================================
 echo "===== Evaluating model with low-rank experts ====="
 python -W ignore -m src.analysis.eval_lowrank_experts \
-    --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0.pt \
+    --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/ihm_TS-Text_lr0.0001_wd0.1_mod_drop_rate_0.0.pt \
     --encoder_path \
-        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0_IHM_mod_drop_rate_0.0_encoder.pt \
-        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0_LOS_mod_drop_rate_0.0_encoder.pt \
-        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm-los-birads/ihm-los-birads_TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo_lr0.0001_wd0.1_mod_drop_rate_0.0_BIRADS_mod_drop_rate_0.0_encoder.pt \
+        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/ihm_TS-Text_lr0.0001_wd0.1_mod_drop_rate_0.0_IHM_mod_drop_rate_0.0_encoder.pt \
     --ranks 1 2 4 8 16 32 64 full \
     --output_dir /cis/home/schaud35/clinical-highmmt/src/analysis/analysis_results/lowrank_eval \
-    --task 'ihm-los-birads' \
+    --task 'ihm' \
     --ihm_mod 'TS-Text' \
     --los_mod 'TS-CXR' \
     --pheno_mod 'TS-Text-CXR' \

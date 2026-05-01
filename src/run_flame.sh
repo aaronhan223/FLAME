@@ -2,7 +2,6 @@ export CUDA_VISIBLE_DEVICES=1
 SEEDS=(0 42 453 1002 10293)
 EXPERTS=(3)
 
-# Run-level config (also used to construct the aggregation path below).
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
 TASK='ihm-risk'
 GATING='laplace'
@@ -58,14 +57,6 @@ for SEED in "${SEEDS[@]}"; do
                 --weight_decay 0.1
 done
 
-# Aggregate per-seed best_model_results_*.txt files into LaTeX tables + CSV summaries.
+
 RESULT_DIR="${RESULTS_DIR}/flame_w_balanced_loss_${BALANCE_LOSS_COEF}_alpha_${ALPHA}_w_residual_scaling/multitask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}"
 python aggregate_results.py --result_dir "${RESULT_DIR}"
-
-# For multi-task MIMIC use train_bs_mimic=2 else 4
-# For single task without --use_pt_text_embeddings use train_bs_mimic=8, num_of_notes=5
-# --wandb_project 'clinical-highmmt' 
-# --linear_probe \
-# --base_task_mods 'TS-Text-CXR' \
-# --base_task 'los' \
-# --use_pt_text_embeddings \
