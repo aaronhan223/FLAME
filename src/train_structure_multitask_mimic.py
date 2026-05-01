@@ -132,23 +132,23 @@ def _run_test_loop(
         print(f"\n{header_label}...")
         task_mods = mods_for_task(args)
         if args.transfer_moe:
-            out_fname = f"{args.results_dir}/flame/multitask/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_transfer_moe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/flame/multitask/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_transfer_moe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.lora:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lora_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.fine_tune:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.linear_probe:
-            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.cross_method == 'flexmoe':
-            out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.txt"
+            out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.txt"
         else:
             if args.shared_modality_encoders:
                 if args.multitask_moe:
-                    out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
                 else:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
             else:
-                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/{args.num_of_experts}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
         os.makedirs(os.path.dirname(out_fname), exist_ok=True)
         f = open(out_fname, 'a')
         f.write(f"\n################## {header_label} ##################\n")

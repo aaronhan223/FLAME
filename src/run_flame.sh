@@ -3,10 +3,10 @@ SEEDS=(42) #(0 42 453 1002 10293)
 EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
-TASK='birads'
+TASK='ihm'
 GATING='laplace'
 BALANCE_LOSS_COEF='1.0'
-ALPHA='const_1.0'
+ALPHA='const_0.0'
 MOD_DROP_RATE='0.0'
 
 for SEED in "${SEEDS[@]}"; do
@@ -56,7 +56,7 @@ for SEED in "${SEEDS[@]}"; do
                 --results_dir "${RESULTS_DIR}" \
                 --lr 0.0001 \
                 --use_wandb \
-                --weight_decay 0.1
+                --weight_decay 10.0
 done
 
 
