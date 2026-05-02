@@ -3,7 +3,7 @@ SEEDS=(42) #(0 42 453 1002 10293)
 EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
-TASK='ihm'
+TASK='los'
 GATING='laplace'
 BALANCE_LOSS_COEF='1.0'
 ALPHA='const_0.0'
@@ -11,7 +11,6 @@ MOD_DROP_RATE='0.0'
 
 for SEED in "${SEEDS[@]}"; do
     for EXPERT in "${EXPERTS[@]}"; do
-        
         python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                     --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 --train_bs_adni 64\
                     --eval_batch_size 8 --seed "${SEED}" \
@@ -58,7 +57,7 @@ for SEED in "${SEEDS[@]}"; do
                     --results_dir "${RESULTS_DIR}" \
                     --lr 0.0001 \
                     --use_wandb \
-                    --weight_decay 10.0
+                    --weight_decay 1.0
         done
 done
 
