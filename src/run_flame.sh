@@ -1,17 +1,17 @@
-export CUDA_VISIBLE_DEVICES=0
-SEEDS=(0)
-EXPERTS=(4)
+export CUDA_VISIBLE_DEVICES=6
+SEEDS=(0 42 453)
+EXPERTS=(5)
 
-RESULTS_DIR='/cis/home/xhan56/code/clinical-highmmt/src/results'
-TASK='ihm'
+RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
+TASK='los'
 GATING='laplace'
 BALANCE_LOSS_COEF='1.0'
 ALPHA='const_0.0'
 MOD_DROP_RATE='0.0'
 
 for SEED in "${SEEDS[@]}"; do
-    for NUM_EXPERTS in "${EXPERTS[@]}"; do
-        python -W ignore mimiciv_tasks.py  --num_train_epochs 30 \
+    for EXPERT in "${EXPERTS[@]}"; do
+        python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
                     --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 --train_bs_adni 64\
                     --eval_batch_size 8 --seed "${SEED}" \
                     --gradient_accumulation_steps 16  --num_update_bert_epochs 2 --bertcount 0 \
@@ -45,7 +45,7 @@ for SEED in "${SEEDS[@]}"; do
                     --reg_ts \
                     --balance_loss_coef "${BALANCE_LOSS_COEF}" \
                     --fusion_model 'fusemoe' \
-                    --num_of_experts "${NUM_EXPERTS}" \
+                    --num_of_experts "${EXPERT}" \
                     --top_k 2 4 \
                     --router_type 'joint' \
                     --gating_function "${GATING}" \
@@ -56,9 +56,9 @@ for SEED in "${SEEDS[@]}"; do
                     --alpha "${ALPHA}" \
                     --results_dir "${RESULTS_DIR}" \
                     --lr 0.0001 \
-                    --weight_decay 0.1 \
-                    --use_wandb
-    done
+                    --use_wandb \
+                    --weight_decay 1.0
+        done
 done
 
 
