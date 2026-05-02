@@ -118,6 +118,7 @@ def _run_test_loop(
     wandb_extra=None,
     use_wandb=False,
     result_filename_prefix='result',
+    save_task_logits=False,
 ):
     """Run the test evaluation loop, append results to the per-config output file,
     and (optionally) log metrics to wandb. Returns rets (attention maps when
@@ -154,6 +155,8 @@ def _run_test_loop(
         f.write(f"\n################## {header_label} ##################\n")
         f.write(setting + "  \n")
         print(f"\nWriting results to {out_fname}\n")
+        out_stem = os.path.splitext(os.path.basename(out_fname))[0]
+        out_dir = os.path.dirname(out_fname)
         for ii in tqdm(range(len(test))):
             eval_vals = {}
             eval_logits = []
@@ -225,6 +228,17 @@ def _run_test_loop(
                     rets[ii].append(model_to_test.attns)
             all_logits = np.array(eval_logits)
             all_label = np.array(eval_labels)
+
+            if save_task_logits:
+                logits_out = os.path.join(out_dir, f"{out_stem}_{task}_logits.npz")
+                np.savez_compressed(
+                    logits_out,
+                    logits=all_logits,
+                    labels=all_label,
+                    task=task,
+                    header_label=header_label,
+                )
+                print(f"Saved logits to {logits_out}")
 
             if 'PHENO' in modalities[int(ii)][0]:
                 all_pred = np.where(all_logits > 0.5, 1, 0)
@@ -701,6 +715,7 @@ def train(
                 log_prefix='test',
                 wandb_extra={'epoch': ep},
                 use_wandb=use_wandb,
+                save_task_logits=(ep == args.num_train_epochs - 1 and len(args.task.split('-')) == 2),
             )
 
     # --- Final test run on best saved model ---
