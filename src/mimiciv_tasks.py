@@ -24,7 +24,7 @@ from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder, EMBEDEncoder
 from src.shared_encoders import TimeQueryEncoder
 # from src.shared_encoders import ModalityEncoders, FSEncoder, TimeQueryEncoder
-from src.utils import create_directory, dump_pickle, mods_for_task
+from src.utils import create_directory, dump_pickle, mods_for_task, encoder_save_path, encoder_load_path
 from src.preprocess.preprocess_eicu import *
 import torch
 from accelerate import Accelerator
@@ -552,7 +552,7 @@ def main():
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
             base_task_upper = args.base_task.upper()
-            enc_path = f'{base_savedir.split(".pt")[0]}_{base_task_upper}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            enc_path = encoder_load_path(base_savedir, base_task_upper, args.modality_drop_rate)
             print(f"Loading encoder for {task} from: {enc_path}")
             base_encoder = torch.load(enc_path, map_location=device)
 
@@ -673,7 +673,7 @@ def main():
         torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
-            torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
+            torch.save(all_encoders[task], encoder_save_path(savedir, task))
     
     _ = train(
         model,
