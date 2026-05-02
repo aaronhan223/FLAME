@@ -483,12 +483,12 @@ class CrossAttnTransformer(nn.Module):
             #return catted
 
         #print('catted shape: {}'.format(catted.shape))
-        
+
         if (self.recon is not None) and use_recon:
-            return self.to_logits(catted),self.recon(catted)
+            return self.to_logits(catted), self.recon(catted), None
         elif get_catted or get_pre_logits:
             return catted
         elif null_pvi:
-            return self.to_logits(torch.zeros(catted.shape).to(device))
-        return self.to_logits(catted)
+            return self.to_logits(torch.zeros(catted.shape).to(device)), None
+        return self.to_logits(catted), None
 

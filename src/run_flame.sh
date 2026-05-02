@@ -61,6 +61,7 @@ for SEED in "${SEEDS[@]}"; do
         done
 done
 
-
-RESULT_DIR="${RESULTS_DIR}/flame_w_balanced_loss_${BALANCE_LOSS_COEF}_alpha_${ALPHA}_w_residual_scaling/multitask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}"
-python aggregate_results.py --result_dir "${RESULT_DIR}"
+for EXPERT in "${EXPERTS[@]}"; do
+    RESULT_DIR="${RESULTS_DIR}/flame_w_balanced_loss_${BALANCE_LOSS_COEF}_alpha_${ALPHA}_w_residual_scaling/multitask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/num_experts_${EXPERT}"
+    python aggregate_results.py --result_dir "${RESULT_DIR}"
+done
