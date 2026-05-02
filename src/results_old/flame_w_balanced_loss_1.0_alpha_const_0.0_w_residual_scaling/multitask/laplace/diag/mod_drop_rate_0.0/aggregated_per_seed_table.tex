@@ -1,0 +1,30 @@
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll|ccccc|c}
+\hline
+Metric & Task & Seed 0 & Seed 42 & Seed 453 & Seed 1002 & Seed 10293 & Mean $\pm$ Std \\
+\hline
+AUROC (micro) & DIAG & 0.810 & 0.829 & 0.795 & 0.825 & 0.817 & $0.815 \pm 0.012$ \\
+\hline
+AUROC (macro) & DIAG & 0.793 & 0.816 & 0.773 & 0.810 & 0.806 & $0.800 \pm 0.015$ \\
+\hline
+AUROC (weighted) & DIAG & 0.784 & 0.807 & 0.766 & 0.805 & 0.798 & $0.792 \pm 0.015$ \\
+\hline
+AUPRC (micro) & DIAG & 0.675 & 0.717 & 0.643 & 0.694 & 0.706 & $0.687 \pm 0.026$ \\
+\hline
+AUPRC (macro) & DIAG & 0.666 & 0.705 & 0.627 & 0.690 & 0.701 & $0.678 \pm 0.029$ \\
+\hline
+AUPRC (weighted) & DIAG & 0.665 & 0.701 & 0.631 & 0.695 & 0.695 & $0.677 \pm 0.027$ \\
+\hline
+F1 (micro) & DIAG & 0.592 & 0.592 & 0.596 & 0.640 & 0.623 & $0.609 \pm 0.019$ \\
+\hline
+F1 (macro) & DIAG & 0.573 & 0.583 & 0.587 & 0.635 & 0.632 & $0.602 \pm 0.026$ \\
+\hline
+F1 (weighted) & DIAG & 0.573 & 0.584 & 0.590 & 0.639 & 0.626 & $0.602 \pm 0.025$ \\
+\hline
+Accuracy & DIAG & 0.592 & 0.592 & 0.596 & 0.640 & 0.623 & $0.609 \pm 0.019$ \\
+\hline
+\end{tabular}
+\caption{Per-seed test performance grouped by metric (with task as sub-row); final column shows mean $\pm$ std across seeds.}
+\end{table}

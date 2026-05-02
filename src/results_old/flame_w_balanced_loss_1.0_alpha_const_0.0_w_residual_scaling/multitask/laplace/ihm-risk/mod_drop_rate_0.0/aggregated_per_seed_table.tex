@@ -1,0 +1,22 @@
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{ll|ccccc|c}
+\hline
+Metric & Task & Seed 0 & Seed 42 & Seed 453 & Seed 1002 & Seed 10293 & Mean $\pm$ Std \\
+\hline
+AUROC & IHM & 0.782 & 0.789 & 0.795 & 0.808 & 0.809 & $0.796 \pm 0.010$ \\
+ & RISK & 0.742 & 0.741 & 0.739 & 0.733 & 0.740 & $0.739 \pm 0.003$ \\
+\hline
+AUPRC & IHM & 0.433 & 0.426 & 0.448 & 0.522 & 0.497 & $0.465 \pm 0.038$ \\
+ & RISK & 0.159 & 0.173 & 0.155 & 0.154 & 0.162 & $0.160 \pm 0.007$ \\
+\hline
+F1 & IHM & 0.291 & 0.216 & 0.400 & 0.429 & 0.430 & $0.353 \pm 0.085$ \\
+ & RISK & 0.122 & 0.129 & 0.237 & 0.216 & 0.163 & $0.173 \pm 0.046$ \\
+\hline
+Accuracy & IHM & 0.837 & 0.851 & 0.853 & 0.866 & 0.864 & $0.854 \pm 0.011$ \\
+ & RISK & 0.661 & 0.700 & 0.922 & 0.906 & 0.825 & $0.803 \pm 0.106$ \\
+\hline
+\end{tabular}
+\caption{Per-seed test performance grouped by metric (with task as sub-row); final column shows mean $\pm$ std across seeds.}
+\end{table}
