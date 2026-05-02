@@ -414,15 +414,15 @@ def train(
     _wandb_for_loggers = wandb if use_wandb else None
     moe_diag = MoEDiagnosticsLogger(
         log_dir=moe_diag_dir,
-        jsonl_name=f"moe_diag_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.jsonl",
-        text_name=f"moe_diag_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.txt",
+        jsonl_name=f"moe_diag_{moe_diag_tag}.jsonl",
+        text_name=f"moe_diag_{moe_diag_tag}.txt",
         wandb_run=_wandb_for_loggers,
     )
     moe_diag.register_hooks(model)
     layerwise_grad_logger = LayerwiseGradLogger(
         log_dir=moe_diag_dir,
-        model_jsonl=f"layerwise_grads_model_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.jsonl",
-        encoder_jsonl=f"layerwise_grads_encoder_{moe_diag_tag}_lr{args.lr}_wd{args.weight_decay}.jsonl",
+        model_jsonl=f"layerwise_grads_model_{moe_diag_tag}.jsonl",
+        encoder_jsonl=f"layerwise_grads_encoder_{moe_diag_tag}.jsonl",
         wandb_run=_wandb_for_loggers,
     )
 

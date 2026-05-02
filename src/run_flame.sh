@@ -1,9 +1,9 @@
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=7
 SEEDS=(42) #(0 42 453 1002 10293)
 EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
-TASK='los'
+TASK='ihm-los-pheno-mortality-readmission-birads-risk-density-diag'
 GATING='laplace'
 BALANCE_LOSS_COEF='1.0'
 ALPHA='const_0.0'
