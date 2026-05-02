@@ -681,7 +681,8 @@ def train(
                     torch.save(model, savedir)
                     for ii in range(len(modalities)):
                         task = modalities[int(ii)][0].split('_')[1]
-                        torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
+                        # torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
+                        torch.save(encoder[task], encoder_save_path(savedir, task))
                 finally:
                     moe_diag.register_hooks(model)
                 val_log['val/best_score_sum'] = float(bestacc)
@@ -708,7 +709,8 @@ def train(
         best_encoder = {}
         for ii in range(len(modalities)):
             task = modalities[int(ii)][0].split('_')[1]
-            enc_path = f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            # enc_path = f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            enc_path = encoder_load_path(savedir, task, args.modality_drop_rate)
             best_encoder[task] = torch.load(enc_path, map_location=device).to(device)
         rets = _run_test_loop(
             best_model, best_encoder, test, modalities, args, setting, device,
