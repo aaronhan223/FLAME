@@ -886,12 +886,15 @@ def _start_wandb_if_requested(args):
             f'_replay{getattr(args, "replay_proportion", 0.0)}'
             f'_lr{args.lr}_wd{args.weight_decay}'
         )
-        wandb.init(
-            entity='shravan25-jhu',
+        _wandb_entity = getattr(args, 'wandb_entity', None) or os.environ.get('WANDB_ENTITY')
+        _wandb_kwargs = dict(
             project=getattr(args, 'wandb_project', 'clinical-highmmt'),
             name=run_name,
             config=vars(args),
         )
+        if _wandb_entity:
+            _wandb_kwargs['entity'] = _wandb_entity
+        wandb.init(**_wandb_kwargs)
         started_here = True
     return use_wandb, started_here
 

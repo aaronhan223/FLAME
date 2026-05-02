@@ -403,12 +403,15 @@ def train(
             f"_balance_coeff_{args.balance_loss_coef}"
             f"_num_experts_{args.num_of_experts}_multitask_run"
         )
-        wandb.init(
-            entity='shravan25-jhu',
+        _wandb_entity = getattr(args, 'wandb_entity', None) or os.environ.get('WANDB_ENTITY')
+        _wandb_kwargs = dict(
             project=getattr(args, 'wandb_project', 'clinical-highmmt'),
             name=getattr(args, 'wandb_run_name', None) or default_run_name,
-            config=vars(args) if hasattr(args, '__dict__') else None
+            config=vars(args) if hasattr(args, '__dict__') else None,
         )
+        if _wandb_entity:
+            _wandb_kwargs['entity'] = _wandb_entity
+        wandb.init(**_wandb_kwargs)
         wandb_run_started_here = True
 
     _wandb_for_loggers = wandb if use_wandb else None

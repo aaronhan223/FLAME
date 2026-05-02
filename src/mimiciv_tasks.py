@@ -198,6 +198,7 @@ def parse_args():
     parser.add_argument('--transfer_moe', action='store_true', help='Load encoders and MoE model from base task checkpoint, freeze encoders and temporal pooling in MoE routers, train only MoE expert and router gate weights')
     parser.add_argument('--shared_modality_encoders', action='store_true', help='Use shared modality encoders across tasks')
     parser.add_argument('--use_wandb', action='store_true', help='Enable Weights & Biases logging for train/val/test metrics.')
+    parser.add_argument('--wandb_entity', type=str, default=None, help='Weights & Biases entity (username or team). Uses WANDB_ENTITY env or your default team when omitted.')
     parser.add_argument('--wandb_project', type=str, default='clinical-highmmt', help='Weights & Biases project name.')
     parser.add_argument('--wandb_run_name', type=str, default=None, help='Optional Weights & Biases run name.')
     parser.add_argument("--num_of_experts", nargs='*', type=int, help="number of MLPs in MoE, for HME need to specify each level")

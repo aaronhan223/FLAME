@@ -1,4 +1,4 @@
-name: mmt
+name: mmt-fmoe
 channels:
   - menpo
   - nvidia/label/cuda-11.7.1
@@ -262,7 +262,6 @@ dependencies:
       - dm-tree==0.1.10
       - einops==0.3.2
       - encoders==0.0.4
-      - fastmoe==1.1.0
       - filelock==3.20.0
       - fonttools==4.60.1
       - frozenlist==1.8.0
@@ -358,5 +357,5 @@ dependencies:
       - xxhash==3.6.0
       - yarl==1.22.0
 variables:
-  LD_LIBRARY_PATH: '/cis/home/schaud35/anaconda3/envs/mmt/lib:/cis/home/schaud35/anaconda3/envs/mmt/lib/python3.10/site-packages/torch/lib:/cis/home/schaud35/anaconda3/envs/mmt/lib:/cis/home/schaud35/anaconda3/envs/mmt/lib/python3.10/site-packages/torch/lib:/cis/home/schaud35/anaconda3/envs/mmt/lib:'
-prefix: /cis/home/schaud35/anaconda3/envs/mmt
+  LD_LIBRARY_PATH: '/cis/home/xhan56/anaconda3/envs/mmt-fmoe/lib:/cis/home/xhan56/anaconda3/envs/mmt-fmoe/lib/python3.10/site-packages/torch/lib:/cis/home/xhan56/anaconda3/envs/mmt-fmoe/lib:/cis/home/xhan56/anaconda3/envs/mmt-fmoe/lib/python3.10/site-packages/torch/lib:/cis/home/xhan56/anaconda3/envs/mmt-fmoe/lib:'
+prefix: /cis/home/xhan56/anaconda3/envs/mmt-fmoe

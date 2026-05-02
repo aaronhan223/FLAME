@@ -25,7 +25,6 @@ einops==0.3.2
 encoders==0.0.4
 exceptiongroup @ file:///home/conda/feedstock_root/build_artifacts/exceptiongroup_1746947292760/work
 executing @ file:///home/conda/feedstock_root/build_artifacts/executing_1756729339227/work
-fastmoe==1.1.0
 filelock @ file:///croot/filelock_1744281381737/work
 fonttools==4.60.1
 frozenlist==1.8.0
