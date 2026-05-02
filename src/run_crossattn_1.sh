@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=4
 SEEDS=(0 42 453) #(0 42 453 1002 10293)
-TASKS=('diag') #('ihm' 'los' 'pheno' 'rad' 'mor' 'birads' 'risk' 'density','diag')
+TASKS=('mortality' 'readmission') #('ihm' 'los' 'pheno' 'rad' 'mor' 'birads' 'risk' 'density','diag')
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
 FUSION_MODEL='crossattntransformer'
@@ -50,7 +50,7 @@ for TASK in "${TASKS[@]}"; do
                         --shared_modality_encoders \
                         --modality_drop_rate 0.0
     done
-    RESULT_DIR="${RESULTS_DIR}/${FUSION_MODEL}/multitask/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/experts_${EXPERT}"
+    RESULT_DIR="${RESULTS_DIR}/${FUSION_MODEL}/multitask/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/num_experts_${EXPERT}"
     python aggregate_results.py --result_dir "${RESULT_DIR}"
 done
 
