@@ -329,10 +329,15 @@ class MultiheadAttention(nn.Module):
         return F.linear(input, weight, bias)
 
 def findmodalityandindex(ms, mn):
+    # Two-pass: prefer exact match across the entire list before falling back
+    # to prefix match. Otherwise a query like 'ts_pheno' against a list that
+    # contains both 'TS' and 'TS_PHENO' would return whichever appears first
+    # (the prefix-match fallback would fire on 'TS' before reaching 'TS_PHENO').
     for i, m in enumerate(ms):
         if mn.lower() == m.name.lower():
             return m, i
-        elif mn.split('_')[0].lower() == m.name.split('_')[0].lower():
+    for i, m in enumerate(ms):
+        if mn.split('_')[0].lower() == m.name.split('_')[0].lower():
             return m, i
     raise ValueError(f"modality {mn} not found in defined modalities")
 

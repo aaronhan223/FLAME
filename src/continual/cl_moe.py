@@ -18,6 +18,7 @@ end of its training stage. Step-2 only ships the module + tests; growth
 and reservation logic land in Step-3.
 """
 
+import math
 from typing import Iterable, List
 
 import torch
@@ -387,14 +388,19 @@ def freeze_router_columns(seq_moe, n_frozen_cols: int, mode: str):
 
 
 def set_current_task_idx(model, task_idx: int):
-    """Set ``current_task_idx`` on every ``PerTaskModalityRouter`` and every
-    ``StackedExpertMLP`` in the model. The router uses it to pick which
-    per-task head fires; the stacked expert uses it to slice the components
-    list (sum components ``[0..task_idx]``). No-op for plain modules."""
+    """Set ``current_task_idx`` on every ``PerTaskModalityRouter``,
+    ``StackedExpertMLP``, and ``LoRAExpertMLP`` in the model. The router
+    uses it to pick which per-task head fires; the stacked expert uses it
+    to slice the components list (sum components ``[0..task_idx]``); the
+    LoRA expert uses it to select how many adapters are summed into the
+    effective weights (``base + adapters[0..task_idx-1]``). No-op for
+    plain modules."""
     for module in model.modules():
         if isinstance(module, PerTaskModalityRouter):
             module.current_task_idx = int(task_idx)
         elif isinstance(module, StackedExpertMLP):
+            module.current_task_idx = int(task_idx)
+        elif isinstance(module, LoRAExpertMLP):
             module.current_task_idx = int(task_idx)
 
 
@@ -569,3 +575,184 @@ def add_router_head_only(seq_moe):
                 f"{type(r).__name__}. --fixed_experts requires "
                 "--router_growth_mode per_task_router."
             )
+
+
+# =============================================================================
+# LoRA continual-learning baseline (--cl_method lora).
+# =============================================================================
+
+
+class LoRAAdapter(nn.Module):
+    """Three additive low-rank adapters, one each for ``temporal_conv``,
+    ``fc1``, ``fc2`` of a ``TemporalExpertMLP``. Each adapter is a pair
+    ``(A, B)`` of factored matrices with rank ``lora_rank``. The conv weight
+    is treated as a 2D ``[D, D*ks]`` matrix for LoRA factorization and
+    reshaped back to ``[D, D, ks]`` when emitting the delta.
+
+    Init follows standard LoRA: ``A ~ kaiming_uniform_``, ``B = 0`` so the
+    initial delta is exactly zero. Gradient still flows to ``A`` because
+    ``dL/dA = (dL/d(AB)) @ B^T``, which is non-zero whenever ``dL/d(AB)``
+    is — wait, that's zero when ``B = 0``. The initial gradient flows to
+    ``B`` instead: ``dL/dB = A^T @ (dL/d(AB))``, which is non-zero when
+    ``A`` has been kaiming-initialized.
+    """
+
+    def __init__(self, input_size, hidden_size, temporal_kernel, lora_rank):
+        super().__init__()
+        D, H, ks, r = input_size, hidden_size, temporal_kernel, lora_rank
+        # temporal_conv weight reshaped 2D form: [D, D*ks].
+        self.A_conv = nn.Parameter(torch.empty(D, r))
+        self.B_conv = nn.Parameter(torch.zeros(r, D * ks))
+        # fc1.weight: [H, D].
+        self.A_fc1 = nn.Parameter(torch.empty(H, r))
+        self.B_fc1 = nn.Parameter(torch.zeros(r, D))
+        # fc2.weight: [D, H].
+        self.A_fc2 = nn.Parameter(torch.empty(D, r))
+        self.B_fc2 = nn.Parameter(torch.zeros(r, H))
+
+        nn.init.kaiming_uniform_(self.A_conv, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.A_fc1, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(self.A_fc2, a=math.sqrt(5))
+
+        self._D = D
+        self._H = H
+        self._ks = ks
+        self._r = r
+
+    @property
+    def lora_rank(self):
+        return self._r
+
+    def delta_conv(self):
+        """Return ΔW for ``temporal_conv`` as a 3D tensor ``[D, D, ks]``."""
+        return (self.A_conv @ self.B_conv).reshape(self._D, self._D, self._ks)
+
+    def delta_fc1(self):
+        return self.A_fc1 @ self.B_fc1
+
+    def delta_fc2(self):
+        return self.A_fc2 @ self.B_fc2
+
+
+class LoRAExpertMLP(nn.Module):
+    """LoRA wrapper around a (frozen) full-rank ``TemporalExpertMLP`` base.
+
+    Holds the base expert plus an ``nn.ModuleList`` of ``LoRAAdapter``s,
+    one per stage ``>= 1`` that has trained against this slot. Forward
+    reconstructs each weight matrix as
+    ``W_eff = W_base + Σ_{i < current_task_idx} A_i · B_i`` and runs the
+    standard ``TemporalExpertMLP``-style pipeline using the base's biases,
+    LayerNorm, and activation.
+
+    ``current_task_idx`` semantics:
+      * ``0`` -> only base, no adapters active (stage-0 evaluation).
+      * ``s >= 1`` -> base + ``lora_adapters[0..s-1]`` (s adapters active).
+
+    During training of stage ``t``, ``lora_adapters[t-1]`` is the trainable
+    adapter; all earlier adapters and the base are frozen.
+    """
+
+    def __init__(self, base):
+        super().__init__()
+        self.base = base
+        self.lora_adapters = nn.ModuleList()
+        self.current_task_idx = 0
+
+    def append_adapter(self, lora_rank):
+        """Append a new trainable ``LoRAAdapter`` for the upcoming stage."""
+        D = self.base.fc1.in_features
+        H = self.base.fc1.out_features
+        ks = self.base.temporal_conv.kernel_size[0]
+        device = next(self.base.parameters()).device
+        adapter = LoRAAdapter(D, H, ks, lora_rank).to(device)
+        self.lora_adapters.append(adapter)
+
+    def freeze_active_adapter(self):
+        """Mark the most recently-added adapter as frozen."""
+        if len(self.lora_adapters) > 0:
+            for p in self.lora_adapters[-1].parameters():
+                p.requires_grad = False
+
+    def _effective_weights(self):
+        """Return ``(W_conv_eff, W_fc1_eff, W_fc2_eff)`` summing the active
+        adapters into the base. Active count is
+        ``min(current_task_idx, len(lora_adapters))``.
+        """
+        b = self.base
+        n_active = max(0, min(int(self.current_task_idx), len(self.lora_adapters)))
+        W_conv = b.temporal_conv.weight
+        W_fc1 = b.fc1.weight
+        W_fc2 = b.fc2.weight
+        for i in range(n_active):
+            adapter = self.lora_adapters[i]
+            W_conv = W_conv + adapter.delta_conv()
+            W_fc1 = W_fc1 + adapter.delta_fc1()
+            W_fc2 = W_fc2 + adapter.delta_fc2()
+        return W_conv, W_fc1, W_fc2
+
+    def forward(self, x):
+        """Mirror of ``TemporalExpertMLP.forward`` with effective weights
+        substituted in. Biases, LayerNorm, activation, dropout all come
+        from the base.
+        """
+        b = self.base
+        W_conv, W_fc1, W_fc2 = self._effective_weights()
+
+        x_t = x.transpose(1, 2)
+        x_conv = F.conv1d(
+            x_t, W_conv,
+            bias=b.temporal_conv.bias,
+            padding=b.temporal_conv.padding[0],
+        )
+        x_conv = x_conv.transpose(1, 2)
+        x_conv = b.activation(x_conv)
+        h = b.temporal_norm(x + x_conv)
+
+        out = F.linear(h, W_fc1, b.fc1.bias)
+        out = b.activation(out)
+        out = b.dropout(out)
+        out = F.linear(out, W_fc2, b.fc2.bias)
+        return out
+
+
+def convert_to_lora_after_stage_0(seq_moe):
+    """Wrap each ``TemporalExpertMLP`` slot in a ``LoRAExpertMLP``. Freezes
+    the base in place. No SVD truncation is applied -- the base remains
+    full-rank, matching the LoRA-baseline design (stage 0 = pretraining,
+    full-rank base, subsequent stages = LoRA adapters).
+    Idempotent: slots already wrapped are skipped.
+    """
+    for i in range(len(seq_moe.experts)):
+        e = seq_moe.experts[i]
+        if isinstance(e, LoRAExpertMLP):
+            continue
+        if not isinstance(e, TemporalExpertMLP):
+            continue
+        for p in e.parameters():
+            p.requires_grad = False
+        device = next(e.parameters()).device
+        wrapper = LoRAExpertMLP(e).to(device)
+        seq_moe.experts[i] = wrapper
+
+
+def append_lora_adapter(seq_moe, lora_rank):
+    """For each ``LoRAExpertMLP`` slot, append a fresh trainable
+    ``LoRAAdapter`` (zero-init B, kaiming-init A so initial delta is 0).
+    """
+    for i in range(len(seq_moe.experts)):
+        slot = seq_moe.experts[i]
+        if not isinstance(slot, LoRAExpertMLP):
+            raise TypeError(
+                f"slot {i} is {type(slot).__name__}, expected LoRAExpertMLP. "
+                "Did you forget to call convert_to_lora_after_stage_0?"
+            )
+        slot.append_adapter(lora_rank)
+
+
+def freeze_active_lora_adapter(seq_moe):
+    """For each ``LoRAExpertMLP`` slot, freeze the most recently-added
+    adapter (called at end-of-stage to lock the just-trained adapter)."""
+    for i in range(len(seq_moe.experts)):
+        slot = seq_moe.experts[i]
+        if isinstance(slot, LoRAExpertMLP):
+            slot.freeze_active_adapter()

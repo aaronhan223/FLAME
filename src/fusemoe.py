@@ -421,32 +421,42 @@ class MULTCrossModel(nn.Module):
         latentout = []
         num_modalities = self.num_modalities
         modalities = []
-        
+
+        # When PHENO uses a dedicated encoder/router set, retain the _PHENO
+        # suffix on its modality labels so SeqMoE picks the PHENO-specific
+        # routers instead of the routers shared with IHM/LOS.
+        use_pheno_suffix = (
+            task is not None
+            and str(task).upper() == 'PHENO'
+            and getattr(self.args, 'pheno_encoder', 'shared') == 'separate'
+        )
+        _suf = '_PHENO' if use_pheno_suffix else ''
+
         for m in multi_modality_data.keys():
             if 'TS' in m:
                 proj_x_ts = multi_modality_data[m].transpose(1,0)
                 if modalities:
-                    modalities.append('TS')
+                    modalities.append('TS' + _suf)
                 else:
-                    modalities = ['TS']
+                    modalities = ['TS' + _suf]
             if 'Text' in m:
                 proj_x_txt = multi_modality_data[m].transpose(1,0)
                 if modalities:
-                    modalities.append('Text')
+                    modalities.append('Text' + _suf)
                 else:
-                    modalities = ['Text']
+                    modalities = ['Text' + _suf]
             if 'CXR' in m:
                 proj_x_cxr = multi_modality_data[m].transpose(1,0)
                 if modalities:
-                    modalities.append('CXR')
+                    modalities.append('CXR' + _suf)
                 else:
-                    modalities = ['CXR']
+                    modalities = ['CXR' + _suf]
             if 'ECG' in m:
                 proj_x_ecg = multi_modality_data[m].transpose(1,0)
                 if modalities:
-                    modalities.append('ECG')
+                    modalities.append('ECG' + _suf)
                 else:
-                    modalities = ['ECG']
+                    modalities = ['ECG' + _suf]
             if 'T1' in m:
                 proj_x_t1 = multi_modality_data[m].transpose(1,0)
                 if modalities:
@@ -531,10 +541,9 @@ class MULTCrossModel(nn.Module):
                 modalities = (modalities or []) + ['B']
 
         modalities = sorted(modalities)
-        modalities = '_'.join(modalities)
-        
+
         balance_loss = None
-        
+
         if self.cross_method in ["self_cross", "moe", "hme", "flexmoe"]:
             # Maps each modality token → (local variable name, short name for the model)
             _proj_var = {
@@ -544,6 +553,10 @@ class MULTCrossModel(nn.Module):
                 'eicu': 'proj_x_eicu',  'cc': 'proj_x_cc',    'mlo': 'proj_x_mlo',
                 '2dcc': 'proj_x_2dcc',    '2dmlo': 'proj_x_2dmlo', 'allviews': 'proj_x_allviews',
                 'I': 'proj_x_i', 'G': 'proj_x_g', 'C': 'proj_x_c', 'B': 'proj_x_b',
+                # PHENO-suffixed labels reuse the same Python projection vars;
+                # only the routing label differs so SeqMoE selects PHENO routers.
+                'TS_PHENO': 'proj_x_ts', 'Text_PHENO': 'proj_x_txt',
+                'CXR_PHENO': 'proj_x_cxr', 'ECG_PHENO': 'proj_x_ecg',
             }
             _short_name = {
                 'TS':   'ts',    'Text': 'text',  'CXR':  'cxr',
@@ -552,9 +565,13 @@ class MULTCrossModel(nn.Module):
                 'eicu': 'eicu',  'cc': 'cc',    'mlo': 'mlo',
                 '2dcc': '2dcc',    '2dmlo': '2dmlo', 'allviews': 'allviews',
                 'I': 'i', 'G': 'g', 'C': 'c', 'B': 'b',
+                'TS_PHENO': 'ts_pheno', 'Text_PHENO': 'text_pheno',
+                'CXR_PHENO': 'cxr_pheno', 'ECG_PHENO': 'ecg_pheno',
             }
             _lv = locals()
-            tokens = modalities.split('_')
+            # `modalities` is already a sorted list; do not round-trip through
+            # join/split('_') — that would fragment '_PHENO'-suffixed labels.
+            tokens = list(modalities)
             proj_list = [_lv[_proj_var[t]] for t in tokens]
             name_list = [_short_name[t] for t in tokens]
             hiddens, balance_loss = self.trans_self_cross_ts_txt(proj_list, name_list)

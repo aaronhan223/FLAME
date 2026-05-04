@@ -226,7 +226,6 @@ def compare_encoder_snapshots(before, after, tolerance=1e-10):
     
     return changes
 
-
 # Per-task encoder checkpoints are saved next to the model checkpoint pointed
 # to by ``savedir`` (a path ending in ``.pt``). Historically the suffix
 # included ``_mod_drop_rate_{rate}`` a second time (it's already encoded in

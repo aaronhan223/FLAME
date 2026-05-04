@@ -24,7 +24,7 @@ from src.train_structure_multitask_mimic import train
 from src.encoders import ModalityEncoders, FSEncoder, EMBEDEncoder
 from src.shared_encoders import TimeQueryEncoder
 # from src.shared_encoders import ModalityEncoders, FSEncoder, TimeQueryEncoder
-from src.utils import create_directory, dump_pickle, mods_for_task, encoder_save_path, encoder_load_path
+from src.utils import create_directory, dump_pickle, mods_for_task, encoder_save_path, encoder_load_path, TASK_TO_MOD_ARG
 from src.preprocess.preprocess_eicu import *
 import torch
 from accelerate import Accelerator
@@ -197,6 +197,10 @@ def parse_args():
     parser.add_argument('--linear_probe', action='store_true')
     parser.add_argument('--transfer_moe', action='store_true', help='Load encoders and MoE model from base task checkpoint, freeze encoders and temporal pooling in MoE routers, train only MoE expert and router gate weights')
     parser.add_argument('--shared_modality_encoders', action='store_true', help='Use shared modality encoders across tasks')
+    parser.add_argument(
+        '--pheno_encoder', type=str, default='shared', choices=['shared', 'separate'],
+        help="When PHENO is trained alongside IHM/LOS, control whether PHENO reuses the IHM/LOS encoder ('shared', current behavior) or gets its own encoder + dedicated TS_PHENO/Text_PHENO/CXR_PHENO/ECG_PHENO modality types so its routers in the multitask MoE are not shared with IHM/LOS ('separate'). Has no effect if PHENO is trained alone."
+    )
     parser.add_argument('--use_wandb', action='store_true', help='Enable Weights & Biases logging for train/val/test metrics.')
     parser.add_argument('--wandb_entity', type=str, default=None, help='Weights & Biases entity (username or team). Uses WANDB_ENTITY env or your default team when omitted.')
     parser.add_argument('--wandb_project', type=str, default='clinical-highmmt', help='Weights & Biases project name.')
@@ -368,10 +372,25 @@ def main():
             for m in t:
                 perceiver_mod.append(all_modalities[m])
     else:
-        # Common modalities across all tasks (sorted for deterministic ordering)
-        perceiver_mod = []
-        shared_modalities = sorted(set([m for tm in task_mods.split('_') for m in tm.split('-')]))
-        for m in shared_modalities:
+        # Common modalities across all tasks (sorted for deterministic ordering).
+        # When --pheno_encoder=separate, PHENO contributes its own
+        # _PHENO-suffixed modality types so its routers/experts in the
+        # multitask MoE are not shared with IHM/LOS.
+        tasks_in_run = args.task.split('-')
+        pheno_separate = (
+            'pheno' in tasks_in_run
+            and getattr(args, 'pheno_encoder', 'shared') == 'separate'
+        )
+        non_pheno_tasks = [t for t in tasks_in_run if not (pheno_separate and t == 'pheno')]
+        non_pheno_bare = set()
+        for t in non_pheno_tasks:
+            mods_str = getattr(args, TASK_TO_MOD_ARG[t], '')
+            if mods_str:
+                non_pheno_bare.update(mods_str.split('-'))
+        keys = sorted(non_pheno_bare)
+        if pheno_separate:
+            keys += [f'{m}_PHENO' for m in sorted(args.pheno_mod.split('-'))]
+        for m in keys:
             perceiver_mod.append(all_modalities[m])
     # # modalities_per_task = [[i.split('_')[0] for i in j] for j in modalities_per_task]
     
@@ -552,6 +571,7 @@ def main():
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
             base_task_upper = args.base_task.upper()
+            # enc_path = f'{base_savedir.split(".pt")[0]}_{base_task_upper}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
             enc_path = encoder_load_path(base_savedir, base_task_upper, args.modality_drop_rate)
             print(f"Loading encoder for {task} from: {enc_path}")
             base_encoder = torch.load(enc_path, map_location=device)
@@ -656,25 +676,30 @@ def main():
         savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_linear_probe_from_{args.base_task}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     elif args.fusion_model=='flexmoe':
-        savedir = f'./checkpoints/flexmoe/multitask/{args.task}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.pt'
+        savedir = f'./checkpoints/flexmoe/singletask/{args.gating_function[0]}/{args.task}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
     else:
         if args.shared_modality_encoders:
             if args.multitask_moe:
                 savedir = f'./checkpoints/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
             else:
-                savedir = f'./checkpoints/{args.fusion_model}_original/multitask/{args.task}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+                savedir = f'./checkpoints/{args.fusion_model}_original/singletask/{args.gating_function[0]}/{args.task}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         else:
-            savedir = f'./checkpoints/{args.fusion_model}/{args.base_task}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
+            savedir = f'./checkpoints/{args.fusion_model}/singletask/{args.gating_function[0]}/{args.task}/experts_{args.num_of_experts[0]}/{args.seed}/{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.pt'
         os.makedirs(os.path.dirname(savedir), exist_ok=True)
-    if getattr(args, 'checkpoint_path', None) and args.num_train_epochs == 0:
-        savedir = args.checkpoint_path
+
+    # Tag separate-PHENO-encoder runs so they don't clobber existing 'shared'
+    # checkpoints. No-op (default 'shared') leaves the path identical to before.
+    if args.pheno_encoder == 'separate' and 'pheno' in args.task.split('-'):
+        savedir = savedir.replace('.pt', '_pheno_enc_separate.pt')
+        os.makedirs(os.path.dirname(savedir), exist_ok=True)
+
     if args.num_train_epochs>0:
         torch.save(model,savedir)
         for ii in range(len(modalities_per_task)):
             task = modalities_per_task[int(ii)][0].split('_')[1]
+            # torch.save(all_encoders[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
             torch.save(all_encoders[task], encoder_save_path(savedir, task))
-    
     _ = train(
         model,
         all_train,

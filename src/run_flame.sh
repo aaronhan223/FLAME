@@ -1,5 +1,5 @@
-export CUDA_VISIBLE_DEVICES=7
-SEEDS=(42) #(0 42 453 1002 10293)
+export CUDA_VISIBLE_DEVICES=6
+SEEDS=(453) #(0 42 453 1002 10293)
 EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/xhan56/code/clinical-highmmt/src/results'
@@ -57,12 +57,12 @@ for SEED in "${SEEDS[@]}"; do
                     --results_dir "${RESULTS_DIR}" \
                     --lr 0.0001 \
                     --use_wandb \
-                    --weight_decay 1.0
+                    --weight_decay 1.0 \
+                    --pheno_encoder 'separate'
         done
 done
 
-
-for NUM_EXPERTS in "${EXPERTS[@]}"; do
-    RESULT_DIR="${RESULTS_DIR}/flame_w_balanced_loss_${BALANCE_LOSS_COEF}_alpha_${ALPHA}_w_residual_scaling/multitask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/experts_${NUM_EXPERTS}"
+for EXPERT in "${EXPERTS[@]}"; do
+    RESULT_DIR="${RESULTS_DIR}/flame_w_balanced_loss_${BALANCE_LOSS_COEF}_alpha_${ALPHA}_w_residual_scaling/multitask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/experts_${EXPERT}"
     python aggregate_results.py --result_dir "${RESULT_DIR}"
 done

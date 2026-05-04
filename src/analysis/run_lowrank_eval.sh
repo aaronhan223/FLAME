@@ -7,12 +7,14 @@ export CUDA_VISIBLE_DEVICES=4
 # ============================================================
 echo "===== Evaluating model with low-rank experts ====="
 python -W ignore -m src.analysis.eval_lowrank_experts \
-    --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/42/ihm_TS-Text_lr0.0001_wd1.0_mod_drop_rate_0.0.pt \
+    --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/continual/laplace/ihm-los__birads/TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo/cl_ewc_lamb1.0_alpha0.5_fi_true_router_per_task_router_fixed_experts_rank16_replay0.0_alphaconst_0.0_lr0.0001_wd0.1_mod_drop_rate_0.0/stage1_birads.pt \
     --encoder_path \
-        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/42/ihm_TS-Text_lr0.0001_wd1.0_mod_drop_rate_0.0_IHM_mod_drop_rate_0.0_encoder.pt \
+        /cis/home/schaud35/clinical-highmmt/src/checkpoints/continual/laplace/ihm-los__birads/TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo/cl_ewc_lamb1.0_alpha0.5_fi_true_router_per_task_router_fixed_experts_rank16_replay0.0_alphaconst_0.0_lr0.0001_wd0.1_mod_drop_rate_0.0/stage0_ihm-los_IHM_encoder.pt \
+        /cis/home/schaud35/clinical-highmmt/src/checkpoints/continual/laplace/ihm-los__birads/TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo/cl_ewc_lamb1.0_alpha0.5_fi_true_router_per_task_router_fixed_experts_rank16_replay0.0_alphaconst_0.0_lr0.0001_wd0.1_mod_drop_rate_0.0/stage0_ihm-los_IHM_encoder.pt \
+        /cis/home/schaud35/clinical-highmmt/src/checkpoints/continual/laplace/ihm-los__birads/TS-Text_TS-CXR_cc-mlo-2dcc-2dmlo/cl_ewc_lamb1.0_alpha0.5_fi_true_router_per_task_router_fixed_experts_rank16_replay0.0_alphaconst_0.0_lr0.0001_wd0.1_mod_drop_rate_0.0/stage1_birads_BIRADS_encoder.pt \
     --ranks 0 1 2 4 8 16 32 64 full \
     --output_dir /cis/home/schaud35/clinical-highmmt/src/analysis/analysis_results/lowrank_eval \
-    --task 'ihm' \
+    --task 'ihm-los-birads' \
     --ihm_mod 'TS-Text' \
     --los_mod 'TS-CXR' \
     --pheno_mod 'TS-Text-CXR' \

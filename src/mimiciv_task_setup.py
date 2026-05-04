@@ -114,9 +114,10 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
             logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 25)))
 
-        if 'IHM' in all_encoders:
+        pheno_encoder_mode = getattr(args, 'pheno_encoder', 'shared')
+        if pheno_encoder_mode == 'shared' and 'IHM' in all_encoders:
             all_encoders['PHENO'] = all_encoders['IHM']
-        elif 'LOS' in all_encoders:
+        elif pheno_encoder_mode == 'shared' and 'LOS' in all_encoders:
             all_encoders['PHENO'] = all_encoders['LOS']
         else:
             if args.shared_modality_encoders:
@@ -135,7 +136,7 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
                 args.tt_max,
                 args.num_of_notes,
                 BioBert,
-                shared_time_encoder=shared_time_encoder.to(device)
+                shared_time_encoder=shared_time_encoder.to(device) if shared_time_encoder is not None else None
             )
             all_encoders['PHENO'] = pheno_encoder
 
@@ -428,6 +429,19 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
                 num_freq_bands=6,
                 max_freq=1,
             )
+
+        # When PHENO uses a dedicated encoder, register PHENO-suffixed modality
+        # types so its router/expert routing in the multitask MoE is not shared
+        # with IHM/LOS that use the same TS/Text/CXR/ECG raw modalities.
+        if 'pheno' in args.task.split('-') and getattr(args, 'pheno_encoder', 'shared') == 'separate':
+            for base in ('TS', 'Text', 'CXR', 'ECG'):
+                all_modalities[f'{base}_PHENO'] = InputModality(
+                    name=f'{base}_PHENO',
+                    input_channels=args.embed_dim,
+                    input_axis=1,
+                    num_freq_bands=6,
+                    max_freq=1,
+                )
     else:
         all_modalities['Text_IHM'] = InputModality(
             name='Text_IHM',
