@@ -139,16 +139,18 @@ def _run_test_loop(
             out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.linear_probe:
             out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
-        elif args.cross_method == 'flexmoe':
-            out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        elif args.fusion_model == 'flexmoe':
+            out_fname = f"{args.results_dir}/flexmoe/singletask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.txt"
         else:
             if args.shared_modality_encoders:
                 if args.multitask_moe:
                     out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
                 else:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/singletask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
             else:
-                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                out_fname = f"{args.results_dir}/{args.fusion_model}/singletask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        if getattr(args, 'pheno_encoder', 'shared') == 'separate' and 'pheno' in args.task.split('-'):
+            out_fname = out_fname.replace('.txt', '_pheno_enc_separate.txt')
         os.makedirs(os.path.dirname(out_fname), exist_ok=True)
         f = open(out_fname, 'a')
         f.write(f"\n################## {header_label} ##################\n")

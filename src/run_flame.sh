@@ -1,5 +1,5 @@
-export CUDA_VISIBLE_DEVICES=7
-SEEDS=(42) #(0 42 453 1002 10293)
+export CUDA_VISIBLE_DEVICES=6
+SEEDS=(453) #(0 42 453 1002 10293)
 EXPERTS=(5)
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
@@ -11,7 +11,7 @@ MOD_DROP_RATE='0.0'
 
 for SEED in "${SEEDS[@]}"; do
     for EXPERT in "${EXPERTS[@]}"; do
-        python -W ignore mimiciv_tasks.py  --num_train_epochs 50 \
+        python -W ignore mimiciv_tasks.py  --num_train_epochs 30 \
                     --kernel_size 1 --train_bs_mimic 8 --train_bs_eicu 128 --train_bs_embed 512 --train_bs_adni 64\
                     --eval_batch_size 8 --seed "${SEED}" \
                     --gradient_accumulation_steps 16  --num_update_bert_epochs 2 --bertcount 0 \
@@ -57,11 +57,12 @@ for SEED in "${SEEDS[@]}"; do
                     --results_dir "${RESULTS_DIR}" \
                     --lr 0.0001 \
                     --use_wandb \
-                    --weight_decay 1.0
+                    --weight_decay 1.0 \
+                    --pheno_encoder 'separate'
         done
 done
 
 for EXPERT in "${EXPERTS[@]}"; do
-    RESULT_DIR="${RESULTS_DIR}/flame_w_balanced_loss_${BALANCE_LOSS_COEF}_alpha_${ALPHA}_w_residual_scaling/multitask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/num_experts_${EXPERT}"
+    RESULT_DIR="${RESULTS_DIR}/flame_w_balanced_loss_${BALANCE_LOSS_COEF}_alpha_${ALPHA}_w_residual_scaling/multitask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/experts_${EXPERT}"
     python aggregate_results.py --result_dir "${RESULT_DIR}"
 done

@@ -1,0 +1,408 @@
+[
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dcc.task_routers.0.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dcc.task_routers.0.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dcc.task_routers.1.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.8176168203353882,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.5593069195747375,
+    "sv_ratio_1_2": 16.779651641845703
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dcc.task_routers.1.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.8535305261611938,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.4841673970222473,
+    "sv_ratio_1_2": 13.772852897644043
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dmlo.task_routers.0.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dmlo.task_routers.0.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dmlo.task_routers.1.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.8473783731460571,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.5096175670623779,
+    "sv_ratio_1_2": 19.16958999633789
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.2dmlo.task_routers.1.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.874076008796692,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.43515464663505554,
+    "sv_ratio_1_2": 14.841116905212402
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cc.task_routers.0.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cc.task_routers.0.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cc.task_routers.1.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.5862970352172852,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.6702947616577148,
+    "sv_ratio_1_2": 22.707237243652344
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cc.task_routers.1.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.6581525802612305,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.5403681993484497,
+    "sv_ratio_1_2": 20.08974838256836
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cxr.task_routers.0.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 2.648077964782715,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 3,
+    "top_sv": 0.150184765458107,
+    "sv_ratio_1_2": 5.242542743682861
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cxr.task_routers.0.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 2.879016399383545,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 4,
+    "top_sv": 0.1293509155511856,
+    "sv_ratio_1_2": 5.611946105957031
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cxr.task_routers.1.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.cxr.task_routers.1.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.mlo.task_routers.0.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.mlo.task_routers.0.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.mlo.task_routers.1.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.765168309211731,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.5442719459533691,
+    "sv_ratio_1_2": 19.423425674438477
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.mlo.task_routers.1.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 1.901423692703247,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 1,
+    "top_sv": 0.4613782465457916,
+    "sv_ratio_1_2": 15.240555763244629
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.text.task_routers.0.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 2.1853294372558594,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 3,
+    "top_sv": 0.21078771352767944,
+    "sv_ratio_1_2": 8.63210678100586
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.text.task_routers.0.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 2.3980395793914795,
+    "max_rank": 5,
+    "rank_90_energy": 1,
+    "rank_99_energy": 3,
+    "top_sv": 0.19170457124710083,
+    "sv_ratio_1_2": 9.132417678833008
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.text.task_routers.1.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.text.task_routers.1.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.ts.task_routers.0.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 3.6338951587677,
+    "max_rank": 5,
+    "rank_90_energy": 3,
+    "rank_99_energy": 4,
+    "top_sv": 0.09502393007278442,
+    "sv_ratio_1_2": 2.242013692855835
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.ts.task_routers.0.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 4.0650787353515625,
+    "max_rank": 5,
+    "rank_90_energy": 3,
+    "rank_99_energy": 5,
+    "top_sv": 0.09670989215373993,
+    "sv_ratio_1_2": 2.512946367263794
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.ts.task_routers.1.w_gate",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  },
+  {
+    "key": "trans_self_cross_ts_txt.layers.0.moe.routers.ts.task_routers.1.w_noise",
+    "shape": [
+      128,
+      5
+    ],
+    "params": 640,
+    "eff_rank": 0.0,
+    "max_rank": 5,
+    "rank_90_energy": 0,
+    "rank_99_energy": 0,
+    "top_sv": 0.0,
+    "sv_ratio_1_2": Infinity,
+    "note": "all singular values < 1e-8"
+  }
+]

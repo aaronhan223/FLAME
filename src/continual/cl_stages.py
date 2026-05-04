@@ -14,6 +14,27 @@ The continual launcher accepts ``--task`` strings in two forms:
 """
 
 
+# Canonical mapping between the lowercase task slugs the user types in
+# ``--task`` and the uppercase task keys that ``setup_tasks_and_modalities``
+# uses internally (the second element of e.g. ``'TS_IHM'``). The reverse
+# direction is what eval-loop printing needs: given a flat task index
+# ii, ``TASK_KEY_TO_SLUG[task_keys[ii]]`` is the user-facing slug for
+# that task -- aligned with ``task_keys[ii]`` regardless of whether the
+# user's stage order differs from setup's hard-coded order.
+SLUG_TO_TASK_KEY = {
+    'ihm': 'IHM',
+    'los': 'LOS',
+    'pheno': 'PHENO',
+    'readmission': 'RAD',
+    'mortality': 'MOR',
+    'birads': 'BIRADS',
+    'risk': 'RISK',
+    'density': 'DENSITY',
+    'diag': 'DIAG',
+}
+TASK_KEY_TO_SLUG = {key: slug for slug, key in SLUG_TO_TASK_KEY.items()}
+
+
 def parse_task_sequence(task_str):
     """Parse the ``--task`` string into a list of stages, each a list of
     task slugs.

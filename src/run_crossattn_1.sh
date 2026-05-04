@@ -1,9 +1,10 @@
 export CUDA_VISIBLE_DEVICES=4
 SEEDS=(0 42 453) #(0 42 453 1002 10293)
-TASKS=('mortality' 'readmission') #('ihm' 'los' 'pheno' 'rad' 'mor' 'birads' 'risk' 'density','diag')
+TASKS=('diag' 'mortality' 'readmission') #('ihm' 'los' 'pheno' 'rad' 'mor' 'birads' 'risk' 'density','diag')
 
 RESULTS_DIR='/cis/home/schaud35/clinical-highmmt/src/results'
 FUSION_MODEL='crossattntransformer'
+GATING='laplace'
 MOD_DROP_RATE='0.0'
 EXPERT='3'
 
@@ -42,7 +43,7 @@ for TASK in "${TASKS[@]}"; do
                         --fp16 \
                         --reg_ts \
                         --fusion_model 'crossattntransformer' \
-                        --num_of_experts 3 5 \
+                        --num_of_experts 5 \
                         --top_k 2 4 \
                         --router_type 'joint' \
                         --gating_function "laplace" \
@@ -50,7 +51,7 @@ for TASK in "${TASKS[@]}"; do
                         --shared_modality_encoders \
                         --modality_drop_rate 0.0
     done
-    RESULT_DIR="${RESULTS_DIR}/${FUSION_MODEL}/multitask/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/num_experts_${EXPERT}"
+    RESULT_DIR="${RESULTS_DIR}/${FUSION_MODEL}/singletask/${GATING}/${TASK}/mod_drop_rate_${MOD_DROP_RATE}/experts_${EXPERT}"
     python aggregate_results.py --result_dir "${RESULT_DIR}"
 done
 
