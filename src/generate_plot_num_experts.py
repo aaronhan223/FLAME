@@ -1,9 +1,10 @@
 """
 Publication-quality line plots for expert ablation study.
   - X-axis: log2 scale (2, 4, 8, 16, 32 experts; 5 removed)
-  - One line per task, grouped by dataset in the legend
+  - Two side-by-side panels (AUROC, AUPRC), independent x-axes
+  - Bottom legend in dataset columns (one block per dataset)
   - Colors/markers from original script
-  - Paper-ready: serif font, tight layout, exports PDF + PNG
+  - Paper-ready: sans-serif font, tight layout, exports PDF + PNG
 """
 
 import matplotlib.pyplot as plt
@@ -74,17 +75,11 @@ plt.rcParams.update({
     "grid.alpha":        0.38,
 })
 
-FS = dict(title=13, axis=11, tick=10, legend=9.5)
+FS = dict(title=15, axis=13, tick=11.5, legend=11)
 # FS = dict(title=20, axis=20, tick=20, legend=20)
 
 
-# ── Plot function ─────────────────────────────────────────────────────────────
-def make_plot(data: dict, metric: str, title: str, out_prefix: str):
-    task_order = list(data.keys())
-
-    fig, ax = plt.subplots(figsize=(8.5, 4.8))
-
-    # Build per-task style map
+def build_task_styles() -> dict:
     task_styles = {}
     t_global = 0
     for group, tasks in dataset_groups.items():
@@ -96,24 +91,68 @@ def make_plot(data: dict, metric: str, title: str, out_prefix: str):
                 "marker":    MARKERS[t_global % len(MARKERS)],
             }
             t_global += 1
+    return task_styles
 
-    # Draw lines
+
+def grouped_legend_handles_labels(task_styles: dict):
+    """One legend column per dataset (header + tasks), padded to equal row count."""
+    _dummy = Line2D([], [], linestyle="none", marker="none", color="none")
+
+    columns = []
+    for group, tasks in dataset_groups.items():
+        col_handles = [Line2D([0], [0], color="none")]
+        col_labels = [group]
+        ls_list = MIMIC_LINESTYLES if group == "MIMIC-IV" else LINESTYLES
+        for li, task in enumerate(tasks):
+            st = task_styles[task]
+            col_handles.append(
+                Line2D(
+                    [0], [0],
+                    color=st["color"],
+                    linestyle=st["linestyle"],
+                    marker=st["marker"],
+                    markersize=7,
+                    linewidth=1.8,
+                )
+            )
+            col_labels.append(task)
+        columns.append(list(zip(col_handles, col_labels)))
+
+    ncols = len(columns)
+    nrows = max(len(col) for col in columns)
+
+    legend_handles, legend_labels = [], []
+    for r in range(nrows):
+        for col in columns:
+            if r < len(col):
+                h, lab = col[r]
+            else:
+                h, lab = _dummy, ""
+            legend_handles.append(h)
+            legend_labels.append(lab)
+
+    return legend_handles, legend_labels, ncols
+
+
+def plot_panel(ax, data: dict, metric: str, title: str, task_styles: dict, *, show_xlabel: bool):
+    task_order = list(data.keys())
+
     for task in task_order:
         st = task_styles[task]
         ax.plot(
-            experts, data[task],
+            experts,
+            data[task],
             color=st["color"],
             linestyle=st["linestyle"],
             marker=st["marker"],
             linewidth=2.0,
-            markersize=7,
+            markersize=8,
             markeredgewidth=1.2,
             markeredgecolor="white",
             label=task,
             zorder=3,
         )
 
-    # ── X axis: log2 ─────────────────────────────────────────────────────
     ax.set_xscale("log", base=2)
     ax.set_xticks(experts)
     ax.xaxis.set_major_formatter(mticker.ScalarFormatter())
@@ -121,41 +160,62 @@ def make_plot(data: dict, metric: str, title: str, out_prefix: str):
     ax.set_xticklabels([str(e) for e in experts], fontsize=FS["tick"])
     ax.set_xlim(1.6, 38)
 
-    # ── Y axis ───────────────────────────────────────────────────────────
     ax.tick_params(axis="y", labelsize=FS["tick"])
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.2f}"))
     ax.yaxis.grid(True, zorder=0)
     ax.set_axisbelow(True)
 
-    # ── Labels ───────────────────────────────────────────────────────────
-    ax.set_xlabel(r"Number of Experts (log$_2$ scale)", fontsize=FS["axis"], labelpad=6)
-    ax.set_ylabel(f"Macro-avg. {metric}", fontsize=FS["axis"], labelpad=6)
-    ax.set_title(title, fontsize=FS["title"], fontweight="bold", pad=8)
+    if show_xlabel:
+        ax.set_xlabel(r"Number of Experts (log$_2$ scale)", fontsize=FS["axis"], labelpad=7)
+    else:
+        ax.set_xlabel("")
+    ax.set_ylabel(f"Macro-avg. {metric}", fontsize=FS["axis"], labelpad=7)
+    ax.set_title(title, fontsize=FS["title"], fontweight="bold", pad=9)
 
-    # ── Legend: grouped by dataset, anchored outside right ───────────────
-    legend_handles, legend_labels = [], []
-    for group, tasks in dataset_groups.items():
-        legend_handles.append(Line2D([0], [0], color="none"))
-        # group.replace("-", "\u2010")  # hyphen character
-        legend_labels.append(group)
-        ls_list = MIMIC_LINESTYLES if group == "MIMIC-IV" else LINESTYLES
-        for li, task in enumerate(tasks):
-            st = task_styles[task]
-            legend_handles.append(
-                Line2D([0], [0],
-                       color=st["color"], linestyle=st["linestyle"],
-                       marker=st["marker"], markersize=6, linewidth=1.8)
-            )
-            legend_labels.append(task)
 
-    leg = ax.legend(
-        legend_handles, legend_labels,
+def make_combined_plot(out_prefix: str):
+    task_styles = build_task_styles()
+    legend_handles, legend_labels, legend_ncol = grouped_legend_handles_labels(task_styles)
+
+    fig, axes = plt.subplots(
+        1,
+        2,
+        figsize=(13.2, 5.35),
+        sharex=False,
+        constrained_layout=False,
+    )
+
+    plot_panel(
+        axes[0],
+        auroc,
+        "AUROC",
+        "Expert Ablation (AUROC)",
+        task_styles,
+        show_xlabel=True,
+    )
+    plot_panel(
+        axes[1],
+        auprc,
+        "AUPRC",
+        "Expert Ablation (AUPRC)",
+        task_styles,
+        show_xlabel=True,
+    )
+
+    leg = fig.legend(
+        legend_handles,
+        legend_labels,
         fontsize=FS["legend"],
-        loc="upper left", bbox_to_anchor=(1.02, 1.0),
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.05),
         borderaxespad=0,
-        framealpha=0.92, edgecolor="#d0d0d0",
-        ncol=1, handlelength=2.2,
-        labelspacing=0.35, borderpad=0.6,
+        framealpha=0.92,
+        edgecolor="#d0d0d0",
+        ncol=legend_ncol,
+        handlelength=2.2,
+        labelspacing=0.28,
+        borderpad=0.45,
+        columnspacing=1.35,
     )
     for text in leg.get_texts():
         if text.get_text() in dataset_groups:
@@ -163,7 +223,7 @@ def make_plot(data: dict, metric: str, title: str, out_prefix: str):
     leg.get_frame().set_linewidth(0.6)
 
     fig.tight_layout()
-    fig.subplots_adjust(right=0.76)
+    fig.subplots_adjust(wspace=0.12, bottom=0.17)
 
     fig.savefig(f"{out_prefix}.pdf", format="pdf", bbox_inches="tight", dpi=300)
     fig.savefig(f"{out_prefix}.png", format="png", bbox_inches="tight", dpi=300)
@@ -173,5 +233,4 @@ def make_plot(data: dict, metric: str, title: str, out_prefix: str):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    make_plot(auroc, "AUROC", "Expert Ablation (AUROC)", "./expert_ablation_auroc")
-    make_plot(auprc, "AUPRC", "Expert Ablation (AUPRC)", "./expert_ablation_auprc")
+    make_combined_plot("./num_expert_ablation_auroc_auprc")
