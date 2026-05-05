@@ -139,16 +139,22 @@ def _run_test_loop(
             out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_ft_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
         elif args.linear_probe:
             out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_linear_probe_from_{args.base_task}_mod_drop_rate_{args.modality_drop_rate}.txt"
-        elif args.cross_method == 'flexmoe':
-            out_fname = f"{args.results_dir}/flexmoe/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        elif args.fusion_model == 'flexmoe':
+            out_fname = f"{args.results_dir}/flexmoe/singletask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_lr{args.lr}_wd{args.weight_decay}_{task_mods}_mod_drop_rate_{args.modality_drop_rate}.txt"
         else:
             if args.shared_modality_encoders:
                 if args.multitask_moe:
                     out_fname = f"{args.results_dir}/flame_w_balanced_loss_{args.balance_loss_coef}_alpha_{args.alpha}_w_residual_scaling/multitask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
                 else:
-                    out_fname = f"{args.results_dir}/{args.fusion_model}/multitask/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                    out_fname = f"{args.results_dir}/{args.fusion_model}/singletask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
             else:
-                out_fname = f"{args.results_dir}/{args.fusion_model}/{args.base_task}/mod_drop_rate_{args.modality_drop_rate}/{args.base_task_mods}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+                out_fname = f"{args.results_dir}/{args.fusion_model}/singletask/{args.gating_function[0]}/{args.task}/mod_drop_rate_{args.modality_drop_rate}/experts_{args.num_of_experts[0]}/{args.seed}/{result_filename_prefix}_{args.task}_{task_mods}_lr{args.lr}_wd{args.weight_decay}_mod_drop_rate_{args.modality_drop_rate}.txt"
+        if getattr(args, 'pheno_encoder', 'shared') == 'separate' and 'pheno' in args.task.split('-'):
+            # Directory-level qualifier — the filename is already close to
+            # the 255-byte single-name limit, so a suffix would overflow.
+            out_fname = os.path.join(
+                os.path.dirname(out_fname), 'pheno_enc_separate', os.path.basename(out_fname)
+            )
         os.makedirs(os.path.dirname(out_fname), exist_ok=True)
         f = open(out_fname, 'a')
         f.write(f"\n################## {header_label} ##################\n")
@@ -681,7 +687,8 @@ def train(
                     torch.save(model, savedir)
                     for ii in range(len(modalities)):
                         task = modalities[int(ii)][0].split('_')[1]
-                        torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
+                        # torch.save(encoder[task], f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt')
+                        torch.save(encoder[task], encoder_save_path(savedir, task))
                 finally:
                     moe_diag.register_hooks(model)
                 val_log['val/best_score_sum'] = float(bestacc)
@@ -708,7 +715,8 @@ def train(
         best_encoder = {}
         for ii in range(len(modalities)):
             task = modalities[int(ii)][0].split('_')[1]
-            enc_path = f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            # enc_path = f'{savedir.split(".pt")[0]}_{task}_mod_drop_rate_{args.modality_drop_rate}_encoder.pt'
+            enc_path = encoder_load_path(savedir, task, args.modality_drop_rate)
             best_encoder[task] = torch.load(enc_path, map_location=device).to(device)
         rets = _run_test_loop(
             best_model, best_encoder, test, modalities, args, setting, device,

@@ -225,3 +225,41 @@ def compare_encoder_snapshots(before, after, tolerance=1e-10):
             print(f"  ⚠️  WARNING: No parameters were updated!")
     
     return changes
+
+# Per-task encoder checkpoints are saved next to the model checkpoint pointed
+# to by ``savedir`` (a path ending in ``.pt``). Historically the suffix
+# included ``_mod_drop_rate_{rate}`` a second time (it's already encoded in
+# ``savedir``), which pushed long multi-task filenames past the 255-byte
+# NAME_MAX limit on ext4 and broke ``torch.save``. New code uses the short
+# suffix; loaders fall back to the legacy long suffix so existing checkpoints
+# remain usable.
+
+def encoder_save_path(savedir, task):
+    """Return the canonical (short) encoder checkpoint path for ``task``.
+
+    ``savedir`` is the model checkpoint path (ends in ``.pt``); the encoder
+    file lives alongside it as ``{stem}_{task}_encoder.pt``.
+    """
+    stem = savedir.split('.pt')[0]
+    return f'{stem}_{task}_encoder.pt'
+
+
+def _legacy_encoder_path(savedir, task, modality_drop_rate):
+    """Pre-fix encoder path that duplicated ``_mod_drop_rate_{rate}``."""
+    stem = savedir.split('.pt')[0]
+    return f'{stem}_{task}_mod_drop_rate_{modality_drop_rate}_encoder.pt'
+
+
+def encoder_load_path(savedir, task, modality_drop_rate):
+    """Resolve an encoder checkpoint for loading.
+
+    Prefers the new short filename; if it does not exist on disk, falls back
+    to the legacy long filename so older checkpoints continue to load.
+    """
+    short = encoder_save_path(savedir, task)
+    if os.path.exists(short):
+        return short
+    legacy = _legacy_encoder_path(savedir, task, modality_drop_rate)
+    if os.path.exists(legacy):
+        return legacy
+    return short

@@ -42,6 +42,20 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
+# Publication-friendly font sizes — applied via rcParams at the top of each
+# plot function so it's consistent across PNGs.
+PAPER_FONT_SIZES = {
+    'font.size': 18,
+    'axes.titlesize': 22,
+    'axes.labelsize': 20,
+    'xtick.labelsize': 16,
+    'ytick.labelsize': 16,
+    'legend.fontsize': 18,
+    'legend.title_fontsize': 19,
+    'figure.titlesize': 24,
+}
+
+
 def truncate_to_rank(W, rank):
     """Apply rank-k SVD approximation to a 2D weight matrix. Rank 0 returns zeros."""
     if rank == 0:
@@ -50,6 +64,50 @@ def truncate_to_rank(W, rank):
     k = min(rank, len(S))
     W_approx = (U[:, :k] * S[:k].unsqueeze(0)) @ Vh[:k, :]
     return W_approx.to(W.dtype)
+
+
+def apply_lowrank_to_encoders(encoders, rank):
+    """Replace trainable Linear/Conv1d(k=1) weights inside encoder modules
+    with their rank-k SVD approximation, in place.
+
+    Skips frozen layers via ``weight.requires_grad`` so pretrained pieces
+    (e.g. BioBERT in ``BertForRepresentation``) are preserved. Conv1d kernels
+    larger than 1 are skipped because they need an im2col unfold to map
+    cleanly to a 2D matrix.
+
+    Args:
+        encoders: dict ``{task_key: encoder_module}``. Multiple keys may share
+                  one module under ``--shared_modality_encoders``; we
+                  deduplicate by id so we don't truncate the same weight twice.
+    """
+    seen = set()
+    modified = 0
+    for enc in encoders.values():
+        if id(enc) in seen:
+            continue
+        seen.add(id(enc))
+        for name, module in enc.named_modules():
+            is_linear = isinstance(module, torch.nn.Linear)
+            is_conv1d_k1 = (isinstance(module, torch.nn.Conv1d)
+                            and tuple(module.kernel_size) == (1,))
+            if not (is_linear or is_conv1d_k1):
+                continue
+            if not hasattr(module, 'weight') or module.weight is None:
+                continue
+            if not module.weight.requires_grad:
+                continue
+
+            W = module.weight.data
+            if W.dim() == 2:
+                module.weight.data = truncate_to_rank(W, rank)
+                modified += 1
+            elif W.dim() == 3:
+                out_c, in_c, ks = W.shape
+                W_2d = W.reshape(out_c, in_c)
+                module.weight.data = truncate_to_rank(W_2d, rank).reshape(
+                    out_c, in_c, ks)
+                modified += 1
+    return modified
 
 
 def apply_lowrank_to_experts(model, rank):
@@ -281,6 +339,9 @@ def diagnose_expert_contribution(model, encoder, test, modalities, args, device,
                         'genders': jj['gender'], 'ethnicities': jj['ethnicity'],
                         'label': jj[task_names[task]].long(),
                     }
+                elif task == 'DIAG':
+                    _, label, mod_tensors = jj
+                    data = {'mod_tensors': mod_tensors, 'label': label}
                 else:
                     continue
 
@@ -324,6 +385,11 @@ def diagnose_expert_contribution(model, encoder, test, modalities, args, device,
                             timestamps=data['timestamps'], ages=data['ages'],
                             genders=data['genders'], ethnicities=data['ethnicities'],
                             modalities=modalities[int(ii)],
+                        )
+                    elif task == 'DIAG':
+                        encoded = encoder[task](
+                            mod_tensors=data['mod_tensors'],
+                            modalities=modalities[ii], task=task,
                         )
 
                     indict = {}
@@ -523,22 +589,32 @@ def count_expert_params(model, rank=None):
 def derive_run_subdir(model_path):
     """Extract the run-identifying sub-path from a checkpoint path.
 
-    Mirrors the directory structure under `checkpoints/` so analysis output
-    lands at the same relative location as the source checkpoint, e.g.
-        .../checkpoints/flame_w_balanced_loss_1.0/.../birads_cc-mlo_lr1e-4/foo.pt
-        -> flame_w_balanced_loss_1.0/.../birads_cc-mlo_lr1e-4
+    Mirrors the directory structure under `checkpoints/` AND appends the
+    checkpoint filename (sans `.pt`) as the final segment, so unique runs
+    that share a checkpoint directory but differ in modalities, learning
+    rate, gating, etc. (which are encoded in the filename) land in distinct
+    analysis output folders. Example:
+
+        .../checkpoints/flame_.../multitask/laplace/ihm-los-pheno/experts_5/42/
+            ihm-los-pheno_TS-Text_TS-CXR_TS-Text-CXR_lr0.0001_wd1.0_..._pheno_enc_separate.pt
+        ->
+        flame_.../multitask/laplace/ihm-los-pheno/experts_5/42/
+            ihm-los-pheno_TS-Text_TS-CXR_TS-Text-CXR_lr0.0001_wd1.0_..._pheno_enc_separate
 
     Falls back to the immediate parent directory name if `checkpoints` is not
     in the path components.
     """
-    parent = os.path.dirname(os.path.abspath(model_path))
+    abspath = os.path.abspath(model_path)
+    parent = os.path.dirname(abspath)
     parts = parent.split(os.sep)
+    stem, _ = os.path.splitext(os.path.basename(abspath))
     if 'checkpoints' in parts:
         idx = parts.index('checkpoints')
         tail = parts[idx + 1:]
         if tail:
-            return os.path.join(*tail)
-    return os.path.basename(parent)
+            return os.path.join(*tail, stem)
+        return stem
+    return os.path.join(os.path.basename(parent), stem)
 
 
 def categorize_layer(name):
@@ -596,6 +672,7 @@ def plot_singular_value_spectrum(model, output_dir):
     except ImportError:
         print("matplotlib not available, skipping SV spectrum plot")
         return
+    plt.rcParams.update(PAPER_FONT_SIZES)
 
     sd = model.state_dict()
     layers_by_category = {}
@@ -647,7 +724,7 @@ def plot_singular_value_spectrum(model, output_dir):
         ax.set_title(f'SV Spectrum: {category} ({n_layers} layers)')
         ax.set_yticks(range(n_layers))
         short_names = _trim_common_prefix([n for n, _ in layers])
-        ax.set_yticklabels(short_names, fontsize=6)
+        ax.set_yticklabels(short_names, fontsize=14)
         cbar = plt.colorbar(im, ax=ax)
         cbar.set_label('Singular value (log scale)')
         plt.tight_layout()
@@ -681,6 +758,7 @@ def plot_expert_energy_curves(model, output_dir):
     except ImportError:
         print("matplotlib not available, skipping expert energy curves")
         return
+    plt.rcParams.update(PAPER_FONT_SIZES)
 
     sd = model.state_dict()
     curves = []  # (name, cumulative_energy_pct)
@@ -726,18 +804,18 @@ def plot_expert_energy_curves(model, output_dir):
     cmap = plt.get_cmap('viridis')
     for i, ((_, cum), short) in enumerate(zip(curves, short_names)):
         color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
-        ax.plot(range(len(cum)), cum, color=color, alpha=0.6, linewidth=1.0,
+        ax.plot(range(len(cum)), cum, color=color, alpha=0.7, linewidth=1.5,
                 label=short if show_per_curve_labels else None)
 
-    ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% energy')
-    ax.axhline(99, color='red', linestyle=':', alpha=0.5, label='99% energy')
+    ax.axhline(90, color='red', linestyle='--', alpha=0.6, linewidth=1.5, label='90% energy')
+    ax.axhline(99, color='red', linestyle=':', alpha=0.6, linewidth=1.5, label='99% energy')
 
     ax.set_xlabel('Rank K')
     ax.set_ylabel('% Cumulative Energy in Top-K Singular Values')
     ax.set_title(f'Expert Spectral Energy vs Rank ({n} layers)')
     ax.set_ylim(0, 105)
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=6 if show_per_curve_labels else 9,
+    ax.legend(fontsize=14 if show_per_curve_labels else 18,
               loc='lower right',
               ncol=2 if show_per_curve_labels else 1)
     plt.tight_layout()
@@ -808,6 +886,9 @@ def _run_test_forward_passes(model, encoder, all_test, modalities_per_task,
                             'genders': jj['gender'], 'ethnicities': jj['ethnicity'],
                             'label': jj[task_names[task]].long(),
                         }
+                    elif task == 'DIAG':
+                        _, label, mod_tensors = jj
+                        data = {'mod_tensors': mod_tensors, 'label': label}
                     else:
                         continue
 
@@ -843,6 +924,11 @@ def _run_test_forward_passes(model, encoder, all_test, modalities_per_task,
                             timestamps=data['timestamps'], ages=data['ages'],
                             genders=data['genders'], ethnicities=data['ethnicities'],
                             modalities=modalities_per_task[int(ii)],
+                        )
+                    elif task == 'DIAG':
+                        encoded = encoder[task](
+                            mod_tensors=data['mod_tensors'],
+                            modalities=modalities_per_task[ii], task=task,
                         )
 
                     indict = {}
@@ -881,6 +967,7 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
     except ImportError:
         print("matplotlib not available, skipping data-aware energy plot")
         return
+    plt.rcParams.update(PAPER_FONT_SIZES)
 
     # --- Install input-side covariance hooks on every expert Linear ---
     cx_accum = {}   # name -> [in_dim, in_dim] running sum of xᵀx
@@ -987,10 +1074,10 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
     for i, (name, short) in enumerate(zip(data_curves.keys(), short_names)):
         color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
         ax_w.plot(range(len(weight_curves[name])), weight_curves[name],
-                  color=color, alpha=0.6, linewidth=1.0,
+                  color=color, alpha=0.7, linewidth=1.5,
                   label=short if show_labels else None)
         ax_d.plot(range(len(data_curves[name])), data_curves[name],
-                  color=color, alpha=0.6, linewidth=1.0,
+                  color=color, alpha=0.7, linewidth=1.5,
                   label=short if show_labels else None)
 
     # Independent y-axis scaling: each panel auto-fits to its own data so
@@ -1002,14 +1089,14 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
         (ax_w, 'Weight-only (Frobenius)', w_max),
         (ax_d, 'Data-aware (test activations)', d_max),
     ]:
-        ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% energy')
-        ax.axhline(99, color='red', linestyle=':', alpha=0.5, label='99% energy')
+        ax.axhline(90, color='red', linestyle='--', alpha=0.6, linewidth=1.5, label='90% energy')
+        ax.axhline(99, color='red', linestyle=':', alpha=0.6, linewidth=1.5, label='99% energy')
         ax.set_xlabel('Rank K')
         ax.set_ylabel('% Cumulative Energy in Top-K')
         ax.set_ylim(0, max(105.0, ymax * 1.05))
         ax.grid(True, alpha=0.3)
         ax.set_title(title)
-        ax.legend(fontsize=6 if show_labels else 9, loc='lower right',
+        ax.legend(fontsize=14 if show_labels else 18, loc='lower right',
                   ncol=2 if show_labels else 1)
     fig.suptitle(f'Expert Spectral Energy: Weight vs Data-aware ({n} layers, '
                  f'{max(n_samples.values())} tokens)')
@@ -1022,18 +1109,18 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
 
     # --- Plot: input | weight | data-aware (separate PNG for comparison) ---
     if input_curves:
-        fig3, (ax_in, ax_w3, ax_d3) = plt.subplots(1, 3, figsize=(20, 6))
+        fig3, (ax_in, ax_w3, ax_d3) = plt.subplots(1, 3, figsize=(22, 6.5))
         for i, (name, short) in enumerate(zip(data_curves.keys(), short_names)):
             color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
             if name in input_curves:
                 ax_in.plot(range(len(input_curves[name])), input_curves[name],
-                           color=color, alpha=0.6, linewidth=1.0,
+                           color=color, alpha=0.7, linewidth=1.5,
                            label=short if show_labels else None)
             ax_w3.plot(range(len(weight_curves[name])), weight_curves[name],
-                       color=color, alpha=0.6, linewidth=1.0,
+                       color=color, alpha=0.7, linewidth=1.5,
                        label=short if show_labels else None)
             ax_d3.plot(range(len(data_curves[name])), data_curves[name],
-                       color=color, alpha=0.6, linewidth=1.0,
+                       color=color, alpha=0.7, linewidth=1.5,
                        label=short if show_labels else None)
         i_max = max(c.max() for c in input_curves.values())
         for ax, title, ymax in [
@@ -1041,14 +1128,14 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
             (ax_w3, 'Weight-only (Frobenius)', w_max),
             (ax_d3, 'Data-aware (test activations)', d_max),
         ]:
-            ax.axhline(90, color='red', linestyle='--', alpha=0.5, label='90% energy')
-            ax.axhline(99, color='red', linestyle=':', alpha=0.5, label='99% energy')
+            ax.axhline(90, color='red', linestyle='--', alpha=0.6, linewidth=1.5, label='90% energy')
+            ax.axhline(99, color='red', linestyle=':', alpha=0.6, linewidth=1.5, label='99% energy')
             ax.set_xlabel('Rank K')
             ax.set_ylabel('% Cumulative Energy in Top-K')
             ax.set_ylim(0, max(105.0, ymax * 1.05))
             ax.grid(True, alpha=0.3)
             ax.set_title(title)
-            ax.legend(fontsize=6 if show_labels else 9, loc='lower right',
+            ax.legend(fontsize=10 if show_labels else 12, loc='lower right',
                       ncol=2 if show_labels else 1)
         fig3.suptitle(f'Expert Spectra: Input vs Weight vs Data-aware ({n} layers, '
                        f'{max(n_samples.values())} tokens)')
@@ -1080,6 +1167,219 @@ def plot_data_aware_energy_curves(model, encoder, all_test, modalities_per_task,
     print(f"  Data-aware energy data saved: {json_path}")
 
 
+def plot_encoder_input_spectrum_comparison(model, encoders, all_test,
+                                            modalities_per_task, args, device,
+                                            output_dir, max_batches=10):
+    """Same input/weight/data-aware comparison as for experts, but for the
+    *trainable* Linear/Conv1d layers inside the encoder modules
+    (ModalityEncoders, FSEncoder, EMBEDEncoder, ADNIEncoder).
+
+    Skips frozen pretrained layers via `weight.requires_grad`. Treats Conv1d
+    with kernel_size=1 as equivalent to Linear (the run script uses
+    ``--kernel_size 1`` for proj_ts); larger kernels are skipped because the
+    SVD on the unfolded matrix would need a per-token im2col we don't do here.
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print("matplotlib not available, skipping encoder input spectrum plot")
+        return
+    plt.rcParams.update(PAPER_FONT_SIZES)
+
+    # Unique encoder modules (all_encoders may share a single object across
+    # multiple task keys under --shared_modality_encoders).
+    unique_encoders = {}
+    for tk, enc in encoders.items():
+        unique_encoders.setdefault(id(enc), (type(enc).__name__, enc))
+
+    cx_accum = {}
+    n_samples = {}
+    weights = {}
+    hooks = []
+
+    for enc_type, enc in unique_encoders.values():
+        for name, module in enc.named_modules():
+            is_linear = isinstance(module, torch.nn.Linear)
+            is_conv1d_k1 = (isinstance(module, torch.nn.Conv1d)
+                            and tuple(module.kernel_size) == (1,))
+            if not (is_linear or is_conv1d_k1):
+                continue
+            if not hasattr(module, 'weight') or module.weight is None:
+                continue
+            if not module.weight.requires_grad:
+                continue  # frozen — skip
+
+            full_name = f'{enc_type}.{name}' if name else enc_type
+            if full_name in weights:
+                continue
+
+            W = module.weight.detach().float().cpu()
+            if W.dim() == 3:
+                W = W.reshape(W.shape[0], W.shape[1])  # [out_c, in_c, 1] -> [out_c, in_c]
+            weights[full_name] = W
+            cx_accum[full_name] = None
+            n_samples[full_name] = 0
+
+            def make_hook(nm, conv1d):
+                def hook_fn(mod, inp, out):
+                    with torch.no_grad():
+                        x = inp[0].float().detach()
+                        if conv1d:
+                            # [B, in_c, T] -> [B*T, in_c]
+                            x = x.transpose(1, 2).reshape(-1, x.shape[1])
+                        else:
+                            x = x.reshape(-1, x.shape[-1])
+                        xtx = (x.T @ x).cpu()
+                        if cx_accum[nm] is None:
+                            cx_accum[nm] = xtx
+                        else:
+                            cx_accum[nm] += xtx
+                        n_samples[nm] += x.shape[0]
+                return hook_fn
+            hooks.append(module.register_forward_hook(
+                make_hook(full_name, is_conv1d_k1)))
+
+    if not weights:
+        print("No trainable encoder Linear/Conv1d(k=1) layers found.")
+        return
+
+    _run_test_forward_passes(
+        model, encoders, all_test, modalities_per_task,
+        args, device, max_batches=max_batches,
+    )
+
+    for h in hooks:
+        h.remove()
+
+    # --- Compute the same three curves (input | weight | data-aware) ---
+    weight_curves = {}
+    data_curves = {}
+    input_curves = {}
+    rank_at_90 = {}
+
+    for name, W in weights.items():
+        if cx_accum[name] is None or n_samples[name] == 0:
+            continue
+        Cx = cx_accum[name] / n_samples[name]
+        try:
+            U, S, Vh = torch.linalg.svd(W, full_matrices=False)
+        except Exception as e:
+            print(f"  SVD failed for {name}: {e}")
+            continue
+        V = Vh.T
+        proj = torch.diagonal(V.T @ Cx @ V).clamp(min=0)
+        sigma2 = S ** 2
+        weight_energy = sigma2.numpy()
+        data_energy = (sigma2 * proj).numpy()
+
+        try:
+            input_eigs = torch.linalg.eigvalsh(Cx).flip(0).clamp(min=0).numpy()
+        except Exception as e:
+            print(f"  eigvalsh failed for {name}: {e}")
+            input_eigs = None
+
+        if weight_energy.sum() <= 0 or data_energy.sum() <= 0:
+            continue
+        w_cum = np.concatenate(([0.0], np.cumsum(weight_energy))) / weight_energy.sum() * 100
+        d_cum = np.concatenate(([0.0], np.cumsum(data_energy))) / data_energy.sum() * 100
+        weight_curves[name] = w_cum
+        data_curves[name] = d_cum
+
+        if input_eigs is not None and input_eigs.sum() > 0:
+            i_cum = np.concatenate(([0.0], np.cumsum(input_eigs))) / input_eigs.sum() * 100
+            input_curves[name] = i_cum
+            ki = int(np.searchsorted(i_cum, 90.0))
+        else:
+            ki = -1
+
+        kw = int(np.searchsorted(w_cum, 90.0))
+        kd = int(np.searchsorted(d_cum, 90.0))
+        rank_at_90[name] = (ki, kw, kd, len(S))
+
+    if not data_curves:
+        print("No data-aware curves produced for encoders (no activations collected).")
+        return
+
+    # --- Plot: input | weight | data-aware (3 panels) ---
+    short_names = _trim_common_prefix(list(data_curves.keys()))
+    n = len(data_curves)
+    show_labels = n <= 30
+    cmap = plt.get_cmap('viridis')
+
+    fig, axes = plt.subplots(1, 3, figsize=(22, 6.5))
+    ax_in, ax_w, ax_d = axes
+    for i, (name, short) in enumerate(zip(data_curves.keys(), short_names)):
+        color = cmap(i / max(1, n - 1)) if n > 1 else cmap(0.5)
+        if name in input_curves:
+            ax_in.plot(range(len(input_curves[name])), input_curves[name],
+                       color=color, alpha=0.7, linewidth=1.5,
+                       label=short if show_labels else None)
+        ax_w.plot(range(len(weight_curves[name])), weight_curves[name],
+                  color=color, alpha=0.7, linewidth=1.5,
+                  label=short if show_labels else None)
+        ax_d.plot(range(len(data_curves[name])), data_curves[name],
+                  color=color, alpha=0.7, linewidth=1.5,
+                  label=short if show_labels else None)
+
+    i_max = max((c.max() for c in input_curves.values()), default=100.0)
+    w_max = max((c.max() for c in weight_curves.values()), default=100.0)
+    d_max = max((c.max() for c in data_curves.values()), default=100.0)
+    for ax, title, ymax in [
+        (ax_in, 'Input spectrum (Cx eigenvalues)', i_max),
+        (ax_w, 'Weight-only (Frobenius)', w_max),
+        (ax_d, 'Data-aware (test activations)', d_max),
+    ]:
+        ax.axhline(90, color='red', linestyle='--', alpha=0.6, linewidth=1.5, label='90% energy')
+        ax.axhline(99, color='red', linestyle=':', alpha=0.6, linewidth=1.5, label='99% energy')
+        ax.set_xlabel('Rank K')
+        ax.set_ylabel('% Cumulative Energy in Top-K')
+        ax.set_ylim(0, max(105.0, ymax * 1.05))
+        ax.grid(True, alpha=0.3)
+        ax.set_title(title)
+    # Shared legend below the figure so per-layer labels don't overlap the
+    # curves on plots with many trainable encoder layers.
+    handles, labels = ax_in.get_legend_handles_labels()
+    if not handles:  # input panel may be empty if eigvalsh failed
+        handles, labels = ax_w.get_legend_handles_labels()
+    n_total = len(handles)
+    legend_ncol = min(n_total, 6 if show_labels else 3)
+    bottom_pad = 0.18 if show_labels else 0.10
+    fig.legend(handles, labels, loc='lower center',
+               ncol=legend_ncol, fontsize=15 if show_labels else 18,
+               bbox_to_anchor=(0.5, 0.0))
+    fig.suptitle(f'Encoder (trainable) Spectra: Input vs Weight vs Data-aware '
+                 f'({n} layers, {max(n_samples.values())} tokens)')
+    plt.tight_layout(rect=[0, bottom_pad, 1, 0.96])
+
+    save_path = os.path.join(output_dir, 'encoder_input_spectrum_comparison.png')
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"  Encoder input spectrum comparison saved: {save_path}")
+
+    # Summary table
+    print(f"\n  Encoder rank-at-90%-energy: input -> weight -> data-aware (max rank)")
+    print(f"  {'layer':<70}  {'k_in':>5}  {'k_w':>5}  {'k_d':>5}  {'max':>5}")
+    short_for_table = _trim_common_prefix(list(rank_at_90.keys()))
+    for (name, (ki, kw, kd, mr)), short in zip(rank_at_90.items(), short_for_table):
+        ki_str = f'{ki}' if ki >= 0 else '-'
+        print(f"  {short:<70}  {ki_str:>5}  {kw:>5}  {kd:>5}  {mr:>5}")
+
+    json_path = os.path.join(output_dir, 'encoder_input_spectrum.json')
+    with open(json_path, 'w') as f:
+        json.dump({
+            'weight_only': {n: c.tolist() for n, c in weight_curves.items()},
+            'data_aware': {n: c.tolist() for n, c in data_curves.items()},
+            'input_spectrum': {n: c.tolist() for n, c in input_curves.items()},
+            'rank_at_90_pct': {n: {'input': ki, 'weight': kw, 'data': kd,
+                                    'max': mr}
+                                for n, (ki, kw, kd, mr) in rank_at_90.items()},
+            'tokens_per_layer': n_samples,
+        }, f, indent=2)
+    print(f"  Encoder spectrum data saved: {json_path}")
+
+
 def plot_routing_distribution(model, encoder, all_test, modalities_per_task,
                               args, device, output_dir, max_batches=10**9):
     """Per-MoE-layer routing-distribution heatmaps, broken down by (task, modality).
@@ -1104,6 +1404,7 @@ def plot_routing_distribution(model, encoder, all_test, modalities_per_task,
     except ImportError:
         print("matplotlib not available, skipping routing distribution plot")
         return
+    plt.rcParams.update(PAPER_FONT_SIZES)
 
     # --- Discover routers and parse (layer_prefix, modality) from each name ---
     router_info = {}  # full_name -> (layer_prefix, modality_label)
@@ -1234,10 +1535,10 @@ def plot_routing_distribution(model, encoder, all_test, modalities_per_task,
         # Single shared legend below both panels.
         handles, labels = ax1.get_legend_handles_labels()
         fig.legend(handles, labels, loc='lower center',
-                   ncol=min(n_mod, 5), fontsize=9,
+                   ncol=min(n_mod, 5), fontsize=18,
                    bbox_to_anchor=(0.5, -0.02))
-        fig.suptitle(f'Routing distribution — {layer_prefix}', fontsize=12)
-        plt.tight_layout(rect=[0, 0.04, 1, 0.97])
+        fig.suptitle(f'Routing distribution — {layer_prefix}', fontsize=22)
+        plt.tight_layout(rect=[0, 0.06, 1, 0.96])
 
         layer_short = layer_prefix.replace('.', '_')
         # Encode routing-decision counts in the filename: collapse to a single
@@ -1294,8 +1595,8 @@ def plot_routing_distribution(model, encoder, all_test, modalities_per_task,
                              label=mod, edgecolor='none')
                     legend_handles.setdefault(mod, bars[0])
 
-                ax_r.set_ylabel(f'{task}\n% routed', fontsize=10)
-                ax_g.set_ylabel(f'{task}\nmean gate w', fontsize=10)
+                ax_r.set_ylabel(f'{task}\n% routed', fontsize=18)
+                ax_g.set_ylabel(f'{task}\nmean gate w', fontsize=18)
                 ax_r.set_xticks(x)
                 ax_g.set_xticks(x)
                 ax_r.grid(True, axis='y', alpha=0.25)
@@ -1309,12 +1610,12 @@ def plot_routing_distribution(model, encoder, all_test, modalities_per_task,
 
             fig_pt.legend(
                 list(legend_handles.values()), list(legend_handles.keys()),
-                loc='lower center', ncol=min(n_mod, 5), fontsize=9,
+                loc='lower center', ncol=min(n_mod, 5), fontsize=18,
                 bbox_to_anchor=(0.5, -0.02),
             )
             fig_pt.suptitle(f'Routing distribution by task — {layer_prefix}',
-                             fontsize=12)
-            plt.tight_layout(rect=[0, 0.04, 1, 0.97])
+                             fontsize=22)
+            plt.tight_layout(rect=[0, 0.06, 1, 0.96])
 
             # Per-task counts in the filename: each task lists either a single
             # `n<count>` (if all its modalities saw the same number) or a
@@ -1478,6 +1779,12 @@ def evaluate(model, encoder, test, modalities, args, device):
                         all_views=all_views,
                         modalities=modalities[int(ii)], task=task
                     )
+                elif task.lower() == 'diag':
+                    _, label, mod_tensors = jj
+                    embeddings = encoder[task](
+                        mod_tensors=mod_tensors,
+                        modalities=modalities[int(ii)], task=task,
+                    )
 
                 indict = {}
                 for i in range(len(modalities[ii])):
@@ -1487,7 +1794,9 @@ def evaluate(model, encoder, test, modalities, args, device):
 
                 if 'PHENO' in modalities[int(ii)][0]:
                     logit = torch.nn.functional.sigmoid(out)
-                elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+                elif ('birads' in modalities[int(ii)][0].lower()
+                      or 'density' in modalities[int(ii)][0].lower()
+                      or 'diag' in modalities[int(ii)][0].lower()):
                     logit = torch.nn.functional.softmax(out, dim=-1)
                 else:
                     logit = torch.nn.functional.softmax(out, dim=-1)[:, 1]
@@ -1505,7 +1814,9 @@ def evaluate(model, encoder, test, modalities, args, device):
                 eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
                 eval_vals['primary_metric'] = float(eval_vals['auc_scores'].mean())
                 eval_vals['metric_name'] = 'auc_mean'
-            elif 'birads' in modalities[int(ii)][0].lower() or 'density' in modalities[int(ii)][0].lower():
+            elif ('birads' in modalities[int(ii)][0].lower()
+                  or 'density' in modalities[int(ii)][0].lower()
+                  or 'diag' in modalities[int(ii)][0].lower()):
                 eval_vals = metrics_multiclass(all_label, all_logits, verbose=0)
                 all_pred = np.argmax(all_logits, axis=1)
                 eval_vals['macro_f1'] = f1_score(all_label, all_pred, average='macro')
@@ -1544,6 +1855,14 @@ def main():
                               help='Ranks to evaluate. Use "full" for no truncation.')
     extra_parser.add_argument('--output_dir', type=str, default='analysis/analysis_results/lowrank_eval',
                               help='Directory to save results')
+    extra_parser.add_argument('--truncate_scope', type=str, default='experts',
+                              choices=['experts', 'experts+encoders'],
+                              help='Where to apply rank truncation during the '
+                                   'sweep. "experts" (default) only truncates '
+                                   'MoE expert weights. "experts+encoders" '
+                                   'also truncates trainable Linear/Conv1d(k=1) '
+                                   'inside encoders (frozen pretrained layers '
+                                   'are preserved via requires_grad check).')
     extra_args, remaining = extra_parser.parse_known_args()
 
     # Put remaining args back for parse_args
@@ -1699,6 +2018,15 @@ def main():
         args, device, extra_args.output_dir, max_batches=10,
     )
 
+    # --- Same input/weight/data-aware comparison for trainable encoder layers ---
+    print(f"\n{'='*60}")
+    print("  Encoder Input Spectrum (trainable layers only)")
+    print(f"{'='*60}")
+    plot_encoder_input_spectrum_comparison(
+        model, all_encoders, all_test, modalities_per_task,
+        args, device, extra_args.output_dir, max_batches=10,
+    )
+
     # --- Routing distribution per (task, modality) ---
     print(f"\n{'='*60}")
     print("  Routing Distribution (per task × modality)")
@@ -1742,18 +2070,30 @@ def main():
     else:
         print("  No router weight matrices found.")
 
+    print(f"\n  Truncation scope: {extra_args.truncate_scope}")
+
     for rank in rank_values:
         rank_label = 'full' if rank is None else str(rank)
         print(f"\n{'='*60}")
         print(f"  Evaluating rank = {rank_label}")
         print(f"{'='*60}")
 
-        # Deep copy the model so we don't accumulate truncations
+        # Deep copy the model and (when needed) the encoders so we don't
+        # accumulate truncations across iterations. copy.deepcopy preserves
+        # shared references via its memo, so encoders shared across task keys
+        # (under --shared_modality_encoders) stay shared after the copy too.
         model_copy = copy.deepcopy(model)
+        if extra_args.truncate_scope == 'experts+encoders':
+            encoders_eval = copy.deepcopy(all_encoders)
+        else:
+            encoders_eval = all_encoders
 
         if rank is not None:
             n_modified = apply_lowrank_to_experts(model_copy, rank)
             print(f"  Truncated {n_modified} expert weight matrices to rank {rank}")
+            if extra_args.truncate_scope == 'experts+encoders':
+                n_enc = apply_lowrank_to_encoders(encoders_eval, rank)
+                print(f"  Truncated {n_enc} trainable encoder weight matrices to rank {rank}")
         else:
             print(f"  Using full-rank weights (baseline)")
 
@@ -1766,7 +2106,7 @@ def main():
                 short_key = key.split('.moe.')[-1]
                 print(f"    {short_key}: {shape} {full_n:,} -> {factored_n:,}")
 
-        results = evaluate(model_copy, all_encoders, all_test,
+        results = evaluate(model_copy, encoders_eval, all_test,
                            modalities_per_task, args, device)
 
         all_results[rank_label] = results
@@ -1833,9 +2173,10 @@ def main():
         import matplotlib
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
+        plt.rcParams.update(PAPER_FONT_SIZES)
 
         for task in tasks:
-            fig, ax = plt.subplots(figsize=(8, 5))
+            fig, ax = plt.subplots(figsize=(9, 6))
             ranks_numeric = []
             metrics_vals = []
             for rank_label, res in all_results.items():
@@ -1848,13 +2189,13 @@ def main():
             if 'full' in all_results:
                 full_val = all_results['full'][task].get('primary_metric', 0)
                 ax.axhline(y=full_val, color='gray', linestyle='--', alpha=0.7,
-                           label=f'Full rank ({full_val:.4f})')
+                           linewidth=2, label=f'Full rank ({full_val:.4f})')
 
             if ranks_numeric:
-                ax.plot(ranks_numeric, metrics_vals, 'bo-', linewidth=2, markersize=8)
+                ax.plot(ranks_numeric, metrics_vals, 'bo-', linewidth=2.2, markersize=9)
                 for r, v in zip(ranks_numeric, metrics_vals):
                     ax.annotate(f'{v:.3f}', (r, v), textcoords='offset points',
-                                xytext=(0, 10), ha='center', fontsize=8)
+                                xytext=(0, 12), ha='center', fontsize=15)
 
             metric_name = all_results[list(all_results.keys())[0]][task].get('metric_name', 'metric')
             ax.set_xlabel('SVD Rank')

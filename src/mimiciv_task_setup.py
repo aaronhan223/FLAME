@@ -114,9 +114,10 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
             logit_dim = len(pheno_mods) * (len(pheno_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 25)))
 
-        if 'IHM' in all_encoders:
+        pheno_encoder_mode = getattr(args, 'pheno_encoder', 'shared')
+        if pheno_encoder_mode == 'shared' and 'IHM' in all_encoders:
             all_encoders['PHENO'] = all_encoders['IHM']
-        elif 'LOS' in all_encoders:
+        elif pheno_encoder_mode == 'shared' and 'LOS' in all_encoders:
             all_encoders['PHENO'] = all_encoders['LOS']
         else:
             if args.shared_modality_encoders:
@@ -135,7 +136,7 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
                 args.tt_max,
                 args.num_of_notes,
                 BioBert,
-                shared_time_encoder=shared_time_encoder.to(device)
+                shared_time_encoder=shared_time_encoder.to(device) if shared_time_encoder is not None else None
             )
             all_encoders['PHENO'] = pheno_encoder
 
@@ -230,15 +231,17 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
         else:
             logit_dim = len(birads_mods) * (len(birads_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 3)))
+        # RNG-state preservation: TimeQueryEncoder is unused by EMBEDEncoder
+        # but its construction draws from the global RNG, advancing the state
+        # before EMBEDEncoder's Linear init. Removing it changes the seed-42
+        # initial weights, which leads to a different (less rank-32 friendly)
+        # local minimum after training. Keep this no-op until we replace
+        # `set_seed`-based reproducibility with explicit per-module seeding.
         if args.shared_modality_encoders:
-            shared_time_encoder = TimeQueryEncoder(
-                tt_max=args.tt_max,
-                embed_time=args.embed_time,
-                device=device
+            _ = TimeQueryEncoder(
+                tt_max=args.tt_max, embed_time=args.embed_time, device=device,
             )
-        else:
-            shared_time_encoder = None
-        birads_encoder = EMBEDEncoder(args=args, device=device,modalities=modalities)
+        birads_encoder = EMBEDEncoder(args=args, device=device, modalities=modalities)
         all_encoders['BIRADS'] = birads_encoder
     if 'risk' in tasks:
         train_risk, valid_risk, test_risk, train_dataset, _, _ = prepare_embed(args=args, task='risk', modeltype=modeltype['risk'])
@@ -256,16 +259,16 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
         else:
             logit_dim = len(risk_mods) * (len(risk_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 2)))
+        # RNG-state preservation: see comment in 'birads' branch.
         if args.shared_modality_encoders:
-            shared_time_encoder = TimeQueryEncoder(
-                tt_max=args.tt_max,
-                embed_time=args.embed_time,
-                device=device
+            _ = TimeQueryEncoder(
+                tt_max=args.tt_max, embed_time=args.embed_time, device=device,
             )
+        if args.shared_modality_encoders and 'BIRADS' in all_encoders:
+            all_encoders['RISK'] = all_encoders['BIRADS']
         else:
-            shared_time_encoder = None
-        risk_encoder = EMBEDEncoder(args=args, device=device, modalities=modalities)
-        all_encoders['RISK'] = risk_encoder
+            risk_encoder = EMBEDEncoder(args=args, device=device, modalities=modalities)
+            all_encoders['RISK'] = risk_encoder
     if 'density' in tasks:
         train_density, valid_density, test_density, train_dataset, _, _ = prepare_embed(args=args, task='density', modeltype=modeltype['density'])
         all_train.append(train_density)
@@ -282,18 +285,20 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
         else:
             logit_dim = len(density_mods) * (len(density_mods) - 1) * args.perceiver_dim
         logits.append(torch.nn.Sequential(torch.nn.LayerNorm(logit_dim), torch.nn.Linear(logit_dim, 4)))
+        # RNG-state preservation: see comment in 'birads' branch.
         if args.shared_modality_encoders:
-            shared_time_encoder = TimeQueryEncoder(
-                tt_max=args.tt_max,
-                embed_time=args.embed_time,
-                device=device
+            _ = TimeQueryEncoder(
+                tt_max=args.tt_max, embed_time=args.embed_time, device=device,
             )
+        if args.shared_modality_encoders and 'BIRADS' in all_encoders:
+            all_encoders['DENSITY'] = all_encoders['BIRADS']
+        elif args.shared_modality_encoders and 'RISK' in all_encoders:
+            all_encoders['DENSITY'] = all_encoders['RISK']
         else:
-            shared_time_encoder = None
-        density_encoder = EMBEDEncoder(args=args, device=device, modalities=modalities)
-        all_encoders['DENSITY'] = density_encoder
+            density_encoder = EMBEDEncoder(args=args, device=device, modalities=modalities)
+            all_encoders['DENSITY'] = density_encoder
 
-    if 'diag' in tasks:
+    if 'diag' in tasks and len(args.diag_mod) > 0:
         diag_letters = [m.strip() for m in args.diag_mod.split('-') if m.strip()]
         modeltype_diag = '_'.join(sorted(diag_letters))
         train_diag, valid_diag, test_diag, train_dataset, _, _ = prepare_adni(
@@ -428,6 +433,19 @@ def setup_tasks_and_modalities(args, device, tokenizer, modeltype, modalities, B
                 num_freq_bands=6,
                 max_freq=1,
             )
+
+        # When PHENO uses a dedicated encoder, register PHENO-suffixed modality
+        # types so its router/expert routing in the multitask MoE is not shared
+        # with IHM/LOS that use the same TS/Text/CXR/ECG raw modalities.
+        if 'pheno' in args.task.split('-') and getattr(args, 'pheno_encoder', 'shared') == 'separate':
+            for base in ('TS', 'Text', 'CXR', 'ECG'):
+                all_modalities[f'{base}_PHENO'] = InputModality(
+                    name=f'{base}_PHENO',
+                    input_channels=args.embed_dim,
+                    input_axis=1,
+                    num_freq_bands=6,
+                    max_freq=1,
+                )
     else:
         all_modalities['Text_IHM'] = InputModality(
             name='Text_IHM',

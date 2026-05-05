@@ -13,6 +13,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 from src.analysis.evaluation import evaluate_model
 import argparse
+
+
+# Publication-friendly font sizes (matches PAPER_FONT_SIZES in
+# src/analysis/eval_lowrank_experts.py).
+plt.rcParams.update({
+    'font.size': 18,
+    'axes.titlesize': 22,
+    'axes.labelsize': 20,
+    'xtick.labelsize': 16,
+    'ytick.labelsize': 16,
+    'legend.fontsize': 18,
+    'legend.title_fontsize': 19,
+    'figure.titlesize': 24,
+})
 from transformers import set_seed
 from src.analysis.utils import *
 import src.get_data_eicu as get_data_eicu

@@ -49,6 +49,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.claude/
 cover/
 
 # Translations
@@ -162,17 +163,20 @@ cython_debug/
 #.idea/
 
 /src/checkpoints
+/src/flame_multitask_checkpoints/*
 /checkpoints
 /src/result.txt
 /src/datasets/eicu/physionet.org
 /src/datasets/eicu/processed
 /src/analysis/results_merged/*
+/src/analysis/analysis_results/*
 *.png
 *.jpeg
 *.jpg
 /src/result*.txt
 /src/results/*
-src/results_old/*
+/src/results_old/*
+/src/flame_multitask_results/*
 *.csv
 *.xml
 *.jsonl

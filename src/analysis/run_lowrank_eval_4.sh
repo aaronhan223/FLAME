@@ -7,23 +7,25 @@ export CUDA_VISIBLE_DEVICES=4
 # ============================================================
 echo "===== Evaluating model with low-rank experts ====="
 python -W ignore -m src.analysis.eval_lowrank_experts \
-    --model_path /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/42/ihm_TS-Text_lr0.0001_wd1.0_mod_drop_rate_0.0.pt \
+    --model_path /cis/home/schaud35/clinical-highmmt/src/flame_multitask_checkpoints/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/diag/experts_5/42/diag_I-G-C-B_lr0.0001_wd1.0_mod_drop_rate_0.0.pt \
     --encoder_path \
-        /cis/home/schaud35/clinical-highmmt/src/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/ihm/42/ihm_TS-Text_lr0.0001_wd1.0_mod_drop_rate_0.0_IHM_mod_drop_rate_0.0_encoder.pt \
-    --ranks 0 1 2 4 8 16 32 64 full \
+        /cis/home/schaud35/clinical-highmmt/src/flame_multitask_checkpoints/checkpoints/flame_w_balanced_loss_1.0_alpha_const_0.0_w_residual_scaling/multitask/laplace/diag/experts_5/42/diag_I-G-C-B_lr0.0001_wd1.0_mod_drop_rate_0.0_DIAG_mod_drop_rate_0.0_encoder.pt \
+    --ranks 0 2 4 8 16 32 64 full \
     --output_dir /cis/home/schaud35/clinical-highmmt/src/analysis/analysis_results/lowrank_eval \
-    --task 'ihm' \
-    --ihm_mod 'TS-Text' \
-    --los_mod 'TS-CXR' \
+    --task 'diag' \
+    --ihm_mod 'TS-Text-CXR' \
+    --los_mod 'TS-Text-CXR' \
     --pheno_mod 'TS-Text-CXR' \
     --rad_mod 'T1-T2-T3-T4-T5' \
     --mor_mod 'T1-T2-T3-T4-T5' \
     --birads_mod 'cc-mlo-2dcc-2dmlo' \
     --risk_mod 'cc-mlo-2dcc-2dmlo' \
     --density_mod 'cc-mlo-2dcc-2dmlo' \
+    --diag_mod 'I-G-C-B' \
     --mimic_path '/export/io79/data/schaud35/datasets/' \
     --eicu_path '/export/io79/data/schaud35/datasets/eicu/processed/' \
     --embed_path '/export/io79/data/schaud35/datasets/EMBED' \
+    --adni_path '/export/io79/data/schaud35/datasets/adni/adni_processed/'\
     --kernel_size 1 --train_bs_mimic 8 --eval_batch_size 8 --seed 42 \
     --gradient_accumulation_steps 16 --num_update_bert_epochs 2 --bertcount 0 \
     --ts_learning_rate 0.0004 --txt_learning_rate 0.00002 \
@@ -43,7 +45,8 @@ python -W ignore -m src.analysis.eval_lowrank_experts \
     --num_train_epochs 0 \
     --multitask_moe \
     --lr 0.001 \
-    --weight_decay 0.1
+    --weight_decay 0.1 \
+    --truncate_scope experts+encoders
 
 # echo ""
 # echo "===== Evaluating LOS model with low-rank experts ====="

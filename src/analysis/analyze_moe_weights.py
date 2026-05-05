@@ -30,6 +30,21 @@ from itertools import combinations
 import warnings
 
 
+# Publication-friendly font sizes — applied globally so every plt.figure /
+# plt.subplots in this module picks them up. Mirrors PAPER_FONT_SIZES in
+# src/analysis/eval_lowrank_experts.py.
+plt.rcParams.update({
+    'font.size': 18,
+    'axes.titlesize': 22,
+    'axes.labelsize': 20,
+    'xtick.labelsize': 16,
+    'ytick.labelsize': 16,
+    'legend.fontsize': 18,
+    'legend.title_fontsize': 19,
+    'figure.titlesize': 24,
+})
+
+
 # ─── Helper: extract MoE components from a saved model ──────────────────────
 
 def extract_moe_components(model):
@@ -102,12 +117,12 @@ def plot_similarity_matrix(labels, sim_matrix, title, save_path):
     im = ax.imshow(sim_matrix, cmap='RdYlBu_r', vmin=-1, vmax=1)
     ax.set_xticks(range(len(labels)))
     ax.set_yticks(range(len(labels)))
-    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=8)
-    ax.set_yticklabels(labels, fontsize=8)
+    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=14)
+    ax.set_yticklabels(labels, fontsize=14)
 
     for i in range(len(labels)):
         for j in range(len(labels)):
-            ax.text(j, i, f'{sim_matrix[i, j]:.2f}', ha='center', va='center', fontsize=7)
+            ax.text(j, i, f'{sim_matrix[i, j]:.2f}', ha='center', va='center', fontsize=12)
 
     plt.colorbar(im, ax=ax)
     ax.set_title(title)
@@ -227,7 +242,7 @@ def plot_pca_experts(ihm_experts, los_experts, save_path):
     for i, (label, c, m) in enumerate(zip(labels, colors, markers)):
         ax.scatter(coords[i, 0], coords[i, 1], c=c, marker=m, s=100,
                    edgecolors='black', linewidths=0.5)
-        ax.annotate(label, (coords[i, 0], coords[i, 1]), fontsize=7,
+        ax.annotate(label, (coords[i, 0], coords[i, 1]), fontsize=12,
                     xytext=(5, 5), textcoords='offset points')
 
     # Draw arrows from IHM → LOS for same (layer, expert)
@@ -415,7 +430,7 @@ def plot_svd_experts(ihm_experts, los_experts, svd_dir):
                 ax.legend()
                 ax.grid(True, alpha=0.3)
 
-            fig.suptitle(f'SVD Spectrum (raw): {weight_name} — Layer {layer}', fontsize=13, fontweight='bold')
+            fig.suptitle(f'SVD Spectrum (raw): {weight_name} — Layer {layer}', fontsize=20, fontweight='bold')
             plt.tight_layout()
             save_path = os.path.join(svd_dir, f'svd_{weight_name.replace(".", "_")}_layer{layer}.png')
             plt.savefig(save_path, dpi=150)
@@ -449,7 +464,7 @@ def plot_svd_experts(ihm_experts, los_experts, svd_dir):
                 ax.legend()
                 ax.grid(True, alpha=0.3)
 
-            fig.suptitle(f'SVD Spectrum (normalized by σ₁): {weight_name} — Layer {layer}', fontsize=13, fontweight='bold')
+            fig.suptitle(f'SVD Spectrum (normalized by σ₁): {weight_name} — Layer {layer}', fontsize=20, fontweight='bold')
             plt.tight_layout()
             save_path = os.path.join(svd_dir, f'svd_norm_{weight_name.replace(".", "_")}_layer{layer}.png')
             plt.savefig(save_path, dpi=150)
