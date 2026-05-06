@@ -75,8 +75,8 @@ plt.rcParams.update({
     "grid.alpha":        0.38,
 })
 
-FS = dict(title=15, axis=13, tick=11.5, legend=11)
-# FS = dict(title=20, axis=20, tick=20, legend=20)
+# FS = dict(title=15, axis=13, tick=11.5, legend=11)
+FS = dict(title=18, axis=15, tick=14, legend=14)
 
 
 def build_task_styles() -> dict:
