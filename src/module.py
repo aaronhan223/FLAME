@@ -15,6 +15,27 @@ import sys
 import pdb
 
 
+def _moe_seq_len_for_modality(args, modality_name):
+    """Per-modality token count fed into the joint MoE.
+
+    MIMIC time-aligned modalities (TS/Text/CXR/ECG, plus _PHENO suffix) emit
+    args.tt_max tokens. ADNI patch modalities (I/G/C/B) emit args.num_patches.
+    Everything else (T1-T5, EMBED views, eicu, allviews) collapses to one
+    token after its encoder. Used to size MoE w_gate/w_noise/experts so they
+    match the real concatenated input dim, not the worst-case tt_max bound.
+    """
+    base = modality_name.split('_')[0]
+    if base in ('TS', 'Text', 'CXR', 'ECG'):
+        return args.tt_max
+    if base in ('I', 'G', 'C', 'B'):
+        return getattr(args, 'num_patches', 16)
+    return 1
+
+
+def _moe_total_input_dim(args, modalities):
+    return sum(_moe_seq_len_for_modality(args, m.name) * args.embed_dim for m in modalities)
+
+
 class Outer(nn.Module):
     def __init__(self,
                  inp1_size: int = 128,
@@ -620,11 +641,12 @@ class TransformerCrossEncoderLayer(nn.Module):
         
         if args.cross_method == 'moe':
             if not args.multitask_moe:
+                moe_total_dim = _moe_total_input_dim(args, modalities)
                 moe_config = MoEConfig(
                 num_experts=args.num_of_experts[0],
-                moe_input_size=args.tt_max * args.embed_dim * num_modalities,
+                moe_input_size=moe_total_dim,
                 moe_hidden_size=args.hidden_size,
-                moe_output_size=args.tt_max * args.embed_dim * num_modalities,
+                moe_output_size=moe_total_dim,
                 top_k=args.top_k[0],
                 router_type=args.router_type,
                 num_modalities=self.num_modalities,#args.num_modalities,
@@ -643,11 +665,12 @@ class TransformerCrossEncoderLayer(nn.Module):
                 self.moe = SeqMoE(moe_config)
             self.moe = self.moe.to('cuda:0')
         elif args.cross_method == 'hme':
+            moe_total_dim = _moe_total_input_dim(args, modalities)
             moe_config = MoEConfig(
             num_experts=args.num_of_experts,
-            moe_input_size=args.tt_max * args.embed_dim * num_modalities,
+            moe_input_size=moe_total_dim,
             moe_hidden_size=args.hidden_size,
-            moe_output_size=args.tt_max * args.embed_dim * num_modalities,
+            moe_output_size=moe_total_dim,
             top_k=args.top_k,
             router_type=args.router_type,
             num_modalities=args.num_modalities,
