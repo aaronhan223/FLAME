@@ -1,4 +1,4 @@
-# Clinical Multimodal-Multitask Transformer
+# FLAME: Adaptive Mixture-of-Experts for Continual Multimodal Multi-Task Learning
 
 ## Instructions to Run:
 Under your virtual environment, run
