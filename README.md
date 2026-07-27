@@ -1,21 +1,6 @@
 # FLAME: Adaptive Mixture-of-Experts for Continual Multimodal Multi-Task Learning
 
-## Instructions to Run:
-Under your virtual environment, run
-```
-pip install -r requirements.txt
-```
-To train the models, go to dir `clinical-highmmt/src/` and run
-```
-./run.sh
-```
-The results will be saved under `clinical-highmmt/src/results/`.
-
-To analyze the weights, go to `clinical-highmmt` and run 
-```
-./src/analysis/run_analysis.sh
-```
-Results will be saved under `clinical-highmmt/src/analysis/results/`.
+# Update for NeurIPS 2026 Rebuttal
 
 ## Expert Spectral Analysis
 
@@ -37,3 +22,21 @@ activations). Dashed and dotted lines mark the 90% and 99% energy thresholds.
 ### Stage 2 — `ihm-risk-readmission` (16,592 tokens)
 
 ![Expert input/weight/data-aware spectra, stage 2 (ihm-risk-readmission)](figs/stage2_ihm-risk-readmission_expert_input_spectrum_comparison.png)
+
+
+## Instructions to Run:
+Under your virtual environment, run
+```
+pip install -r requirements.txt
+```
+To train the models, go to dir `clinical-highmmt/src/` and run
+```
+./run.sh
+```
+The results will be saved under `clinical-highmmt/src/results/`.
+
+To analyze the weights, go to `clinical-highmmt` and run 
+```
+./src/analysis/run_analysis.sh
+```
+Results will be saved under `clinical-highmmt/src/analysis/results/`.
