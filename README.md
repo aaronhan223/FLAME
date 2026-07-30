@@ -287,7 +287,61 @@ guarantee of positive transfer. The argument also covers direct interaction
 through the shared experts only: disjoint expert support does not preclude
 interaction through auxiliary balancing losses or jointly updated statistics.
 
-## C. Instructions to Run:
+## C. Functional Energy Analysis on OLMoE-1B-7B
+
+Rank-reservation diagnostics for the continual stream SAMSum → GSM8K → MBPP →
+CNN/DailyMail → CommonGen. One figure per stage, median over experts, layers
+8 and 15. The pretrained OLMoE weights are frozen throughout; only the
+stage's LoRA update ΔW is truncated.
+
+Each figure shows three views:
+
+| Panel | Quantity | What it measures |
+|---|---|---|
+| Left | cumulative σ² of ΔW | weight-only energy, ignoring the input distribution |
+| Middle | cumulative σ²·vᵀCₓv of ΔW | data-aware energy along routed activations |
+| Right | data-aware energy of Wbase + ΔW | rank of the deployed effective weight |
+
+![Stage 0 — SAMSum](figs/stage0_spectrum_vs_lora_rank.png)
+![Stage 1 — GSM8K](figs/stage1_spectrum_vs_lora_rank.png)
+![Stage 2 — MBPP](figs/stage2_spectrum_vs_lora_rank.png)
+![Stage 3 — CNN/DailyMail](figs/stage3_spectrum_vs_lora_rank.png)
+![Stage 4 — CommonGen](figs/stage4_spectrum_vs_lora_rank.png)
+
+### Energy retained at the reserved rank
+
+| Stage | Task | weight-only @ r=2 | data-aware @ r=2 | data-aware @ r=4 |
+|---|---|---|---|---|
+| 0 | SAMSum | 74% | 98% | 99% |
+| 1 | GSM8K | 80% | 99% | 100% |
+| 2 | MBPP | 75% | 96% | 99% |
+| 3 | CNN/DailyMail | 78% | 99% | 100% |
+| 4 | CommonGen | 82% | 99% | 100% |
+
+### Takeaways
+
+1. **Weight energy and functional energy diverge.** At r=2 the update keeps
+   74–82% of its weight-only energy but 96–99% of its data-aware energy. The
+   discarded directions carry weight mass and almost no function, which is the
+   gap Proposition 1 predicts.
+
+2. **The backbone is not degenerate.** The right panel shows Wbase + ΔW
+   reaching only ~56–59% data-aware energy at rank 128, so the effective weight
+   is near full rank. Low-rankness is a property of the update, not of OLMoE.
+
+3. **Rank 1 already captures most of it.** Data-aware energy jumps to 92–97% at
+   r=1 on every stage, so r=2 sits well past the knee. Reserved ranks below 2
+   may be viable.
+
+4. **Stable across the stream.** The pattern is unchanged from stage 0 to stage
+   4, so functional rank does not inflate as reserved components accumulate.
+
+5. **Transfers across settings.** Proposition 1 was derived for experts trained
+   from scratch on multimodal clinical data. The same signature appears for
+   LoRA updates on a frozen pretrained text MoE, at ~100× the parameter count.
+
+
+## D. Instructions to Run:
 Under your virtual environment, run
 ```
 pip install -r requirements.txt
