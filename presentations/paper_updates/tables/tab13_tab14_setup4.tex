@@ -1,0 +1,44 @@
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{1.8pt}
+\caption{Setup 4 per-task AUROC when first learned $\to$ after the final stage (3 timestamp-generated seeds, mean $\pm$ std). Stage-3 tasks are learned last and report one value. Drops of at least 0.02 in bold.}
+\label{tab:cl-setup4-retention}
+\begin{tabular}{lccccc}
+\toprule
+Task (stage) & \textsc{FLAME-CL} & TRGE & SAME & L\textsc{w}F & EWC \\
+\midrule
+PHENO (s1) & $0.71_{\pm 0.00}$ $\to$ $0.71_{\pm 0.00}$ & $0.71_{\pm 0.00}$ $\to$ $\mathbf{0.67}_{\pm 0.01}$ & $0.71_{\pm 0.00}$ $\to$ $\mathbf{0.65}_{\pm 0.01}$ & $0.71_{\pm 0.01}$ $\to$ $\mathbf{0.69}_{\pm 0.01}$ & $0.71_{\pm 0.00}$ $\to$ $\mathbf{0.67}_{\pm 0.00}$ \\
+DENSITY (s1) & $0.91_{\pm 0.01}$ $\to$ $0.91_{\pm 0.01}$ & $0.92_{\pm 0.00}$ $\to$ $\mathbf{0.75}_{\pm 0.06}$ & $0.91_{\pm 0.01}$ $\to$ $\mathbf{0.85}_{\pm 0.01}$ & $0.92_{\pm 0.01}$ $\to$ $\mathbf{0.65}_{\pm 0.10}$ & $0.92_{\pm 0.01}$ $\to$ $\mathbf{0.78}_{\pm 0.05}$ \\
+LOS (s2) & $0.82_{\pm 0.00}$ $\to$ $0.82_{\pm 0.00}$ & $0.82_{\pm 0.00}$ $\to$ $0.82_{\pm 0.00}$ & $0.82_{\pm 0.00}$ $\to$ $0.81_{\pm 0.01}$ & $0.81_{\pm 0.01}$ $\to$ $0.81_{\pm 0.00}$ & $0.82_{\pm 0.00}$ $\to$ $0.80_{\pm 0.01}$ \\
+BIRADS (s2) & $0.81_{\pm 0.00}$ $\to$ $0.81_{\pm 0.00}$ & $0.79_{\pm 0.01}$ $\to$ $0.79_{\pm 0.01}$ & $0.77_{\pm 0.03}$ $\to$ $0.76_{\pm 0.03}$ & $0.78_{\pm 0.01}$ $\to$ $0.77_{\pm 0.00}$ & $0.80_{\pm 0.00}$ $\to$ $0.79_{\pm 0.01}$ \\
+MOR (s2) & $0.82_{\pm 0.00}$ $\to$ $0.82_{\pm 0.00}$ & $0.82_{\pm 0.00}$ $\to$ $0.82_{\pm 0.00}$ & $0.82_{\pm 0.00}$ $\to$ $0.82_{\pm 0.00}$ & $0.83_{\pm 0.00}$ $\to$ $0.83_{\pm 0.00}$ & $0.82_{\pm 0.00}$ $\to$ $\mathbf{0.78}_{\pm 0.02}$ \\
+IHM (s3) & $0.81_{\pm 0.01}$ & $0.81_{\pm 0.00}$ & $0.81_{\pm 0.02}$ & $0.80_{\pm 0.00}$ & $0.81_{\pm 0.00}$ \\
+RISK (s3) & $0.74_{\pm 0.00}$ & $0.74_{\pm 0.01}$ & $0.74_{\pm 0.02}$ & $0.73_{\pm 0.01}$ & $0.75_{\pm 0.00}$ \\
+RAD (s3) & $0.73_{\pm 0.00}$ & $0.66_{\pm 0.01}$ & $0.68_{\pm 0.00}$ & $0.67_{\pm 0.01}$ & $0.75_{\pm 0.00}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\caption{Setup 4 per-task forgetting F and summary metrics (3 timestamp-generated seeds, mean $\pm$ std). F is measured against the model deployed at the stage where each task was learned (post-truncation for \textsc{FLAME-CL}).}
+\label{tab:cl-setup4-forgetting}
+\begin{tabular}{lccccc}
+\toprule
+ & \textsc{FLAME-CL} & TRGE & SAME & L\textsc{w}F & EWC \\
+\midrule
+F: PHENO (s1) & $0.000\pm0.000$ & $0.048\pm0.009$ & $0.054\pm0.007$ & $0.028\pm0.002$ & $0.043\pm0.005$ \\
+F: DENSITY (s1) & $0.000\pm0.000$ & $0.171\pm0.061$ & $0.058\pm0.011$ & $0.272\pm0.109$ & $0.143\pm0.054$ \\
+F: LOS (s2) & $0.000\pm0.000$ & $0.002\pm0.000$ & $0.006\pm0.005$ & $0.001\pm0.001$ & $0.020\pm0.011$ \\
+F: BIRADS (s2) & $0.000\pm0.000$ & $0.005\pm0.004$ & $0.011\pm0.010$ & $0.004\pm0.002$ & $0.009\pm0.011$ \\
+F: MOR (s2) & $0.000\pm0.000$ & $0.001\pm0.001$ & $0.003\pm0.002$ & $0.001\pm0.000$ & $0.041\pm0.021$ \\
+\midrule
+F (avg) $\downarrow$ & $0.000\pm0.000$ & $0.046\pm0.010$ & $0.026\pm0.007$ & $0.061\pm0.022$ & $0.051\pm0.009$ \\
+BWT (avg) $\uparrow$ & $0.000\pm0.000$ & $-0.046\pm0.010$ & $-0.026\pm0.007$ & $-0.061\pm0.022$ & $-0.051\pm0.009$ \\
+AA (8 tasks) $\uparrow$ & $0.793\pm0.002$ & $0.757\pm0.007$ & $0.764\pm0.006$ & $0.743\pm0.013$ & $0.767\pm0.006$ \\
+\bottomrule
+\end{tabular}
+\end{table}

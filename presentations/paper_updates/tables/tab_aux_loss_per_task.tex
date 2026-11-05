@@ -1,0 +1,59 @@
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Per-task AUROC under the router-balancing loss weight sweep (joint nine-task training, $\lambda_{\mathrm{int}}=0.1$; mean $\pm$ std over seeds 42, 20492, 28411). $^\dagger$ default. Bold: best weight per task. Range: max $-$ min of the task mean across this sweep.}
+\label{tab:aux-bal-per-task}
+\begin{tabular}{llcccccc}
+\toprule
+ & & \multicolumn{5}{c}{$\lambda_{\mathrm{bal}}$} & \\
+\cmidrule(lr){3-7}
+Dataset & Task & 0 & 0.001 & 0.01$^\dagger$ & 0.1 & 1 & Range \\
+\midrule
+MIMIC-IV & 48-IHM & 0.801{\scriptsize$\pm$0.013} & 0.806{\scriptsize$\pm$0.009} & 0.809{\scriptsize$\pm$0.004} & 0.806{\scriptsize$\pm$0.007} & \textbf{0.815{\scriptsize$\pm$0.005}} & 0.013 \\
+ & LOS & 0.812{\scriptsize$\pm$0.007} & 0.808{\scriptsize$\pm$0.003} & \textbf{0.817{\scriptsize$\pm$0.002}} & 0.812{\scriptsize$\pm$0.005} & 0.811{\scriptsize$\pm$0.007} & 0.009 \\
+ & 25-PHENO & 0.715{\scriptsize$\pm$0.003} & \textbf{0.718{\scriptsize$\pm$0.001}} & 0.718{\scriptsize$\pm$0.001} & 0.716{\scriptsize$\pm$0.002} & 0.712{\scriptsize$\pm$0.001} & 0.006 \\
+\addlinespace[2pt]
+eICU & MOR & 0.838{\scriptsize$\pm$0.007} & 0.839{\scriptsize$\pm$0.007} & 0.839{\scriptsize$\pm$0.005} & 0.837{\scriptsize$\pm$0.002} & \textbf{0.839{\scriptsize$\pm$0.006}} & 0.003 \\
+ & RAD & 0.759{\scriptsize$\pm$0.003} & \textbf{0.760{\scriptsize$\pm$0.002}} & 0.759{\scriptsize$\pm$0.001} & 0.754{\scriptsize$\pm$0.006} & 0.758{\scriptsize$\pm$0.005} & 0.006 \\
+\addlinespace[2pt]
+EMBED & BIRADS & \textbf{0.809{\scriptsize$\pm$0.004}} & 0.806{\scriptsize$\pm$0.001} & 0.804{\scriptsize$\pm$0.003} & 0.804{\scriptsize$\pm$0.003} & 0.803{\scriptsize$\pm$0.003} & 0.006 \\
+ & RISK & 0.747{\scriptsize$\pm$0.004} & 0.752{\scriptsize$\pm$0.004} & 0.752{\scriptsize$\pm$0.006} & \textbf{0.753{\scriptsize$\pm$0.006}} & 0.750{\scriptsize$\pm$0.005} & 0.006 \\
+ & DENSITY & 0.914{\scriptsize$\pm$0.012} & 0.914{\scriptsize$\pm$0.003} & 0.915{\scriptsize$\pm$0.003} & 0.910{\scriptsize$\pm$0.006} & \textbf{0.916{\scriptsize$\pm$0.001}} & 0.006 \\
+\addlinespace[2pt]
+ADNI & DIAG & 0.755{\scriptsize$\pm$0.033} & \textbf{0.788{\scriptsize$\pm$0.020}} & 0.771{\scriptsize$\pm$0.044} & 0.765{\scriptsize$\pm$0.026} & 0.751{\scriptsize$\pm$0.029} & 0.036 \\
+\midrule
+\multicolumn{2}{l}{Mean (9 tasks)} & 0.795{\scriptsize$\pm$0.001} & \textbf{0.799{\scriptsize$\pm$0.002}} & 0.798{\scriptsize$\pm$0.005} & 0.795{\scriptsize$\pm$0.003} & 0.795{\scriptsize$\pm$0.003} & 0.004 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Per-task AUROC under the interaction loss weight sweep (joint nine-task training, $\lambda_{\mathrm{bal}}=0.01$; mean $\pm$ std over seeds 42, 20492, 28411). $^\dagger$ default. Bold: best weight per task. Range: max $-$ min of the task mean across this sweep.}
+\label{tab:aux-int-per-task}
+\begin{tabular}{llccccc}
+\toprule
+ & & \multicolumn{4}{c}{$\lambda_{\mathrm{int}}$} & \\
+\cmidrule(lr){3-6}
+Dataset & Task & 0 & 0.01 & 0.1$^\dagger$ & 1 & Range \\
+\midrule
+MIMIC-IV & 48-IHM & 0.806{\scriptsize$\pm$0.006} & 0.808{\scriptsize$\pm$0.004} & 0.809{\scriptsize$\pm$0.004} & \textbf{0.816{\scriptsize$\pm$0.006}} & 0.010 \\
+ & LOS & 0.814{\scriptsize$\pm$0.008} & 0.808{\scriptsize$\pm$0.003} & 0.817{\scriptsize$\pm$0.002} & \textbf{0.817{\scriptsize$\pm$0.006}} & 0.009 \\
+ & 25-PHENO & 0.713{\scriptsize$\pm$0.002} & \textbf{0.718{\scriptsize$\pm$0.001}} & 0.718{\scriptsize$\pm$0.001} & 0.712{\scriptsize$\pm$0.003} & 0.006 \\
+\addlinespace[2pt]
+eICU & MOR & 0.835{\scriptsize$\pm$0.005} & 0.839{\scriptsize$\pm$0.005} & 0.839{\scriptsize$\pm$0.005} & \textbf{0.840{\scriptsize$\pm$0.006}} & 0.005 \\
+ & RAD & 0.757{\scriptsize$\pm$0.002} & 0.757{\scriptsize$\pm$0.006} & 0.759{\scriptsize$\pm$0.001} & \textbf{0.762{\scriptsize$\pm$0.004}} & 0.006 \\
+\addlinespace[2pt]
+EMBED & BIRADS & 0.804{\scriptsize$\pm$0.005} & 0.801{\scriptsize$\pm$0.004} & 0.804{\scriptsize$\pm$0.003} & \textbf{0.806{\scriptsize$\pm$0.002}} & 0.006 \\
+ & RISK & 0.747{\scriptsize$\pm$0.004} & 0.749{\scriptsize$\pm$0.009} & \textbf{0.752{\scriptsize$\pm$0.006}} & 0.748{\scriptsize$\pm$0.001} & 0.005 \\
+ & DENSITY & \textbf{0.917{\scriptsize$\pm$0.003}} & 0.910{\scriptsize$\pm$0.009} & 0.915{\scriptsize$\pm$0.003} & 0.915{\scriptsize$\pm$0.007} & 0.007 \\
+\addlinespace[2pt]
+ADNI & DIAG & 0.770{\scriptsize$\pm$0.027} & 0.762{\scriptsize$\pm$0.028} & \textbf{0.771{\scriptsize$\pm$0.044}} & 0.762{\scriptsize$\pm$0.031} & 0.009 \\
+\midrule
+\multicolumn{2}{l}{Mean (9 tasks)} & 0.796{\scriptsize$\pm$0.004} & 0.795{\scriptsize$\pm$0.002} & \textbf{0.798{\scriptsize$\pm$0.005}} & 0.798{\scriptsize$\pm$0.002} & 0.003 \\
+\bottomrule
+\end{tabular}
+\end{table}

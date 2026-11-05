@@ -1,0 +1,60 @@
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\caption{Per-stage numbers behind Fig.~\ref{fig:cl}: AUROC when first learned $\to$ after the final stage (seed 42). Stage-$K$ tasks report one value; drops of at least 0.02 in bold. For \textsc{FLAME-CL} the first value is before rank-32 truncation, so its deltas are the one-time truncation cost; F is measured against the deployed (post-truncation) model. Parameter rows give inference-time totals after the first $\to$ last stage; \textsc{LoRA} adapts only the MoE and keeps the full encoder.}
+\label{tab:cl-fig5-per-stage}
+\begin{tabular}{lcccc}
+\toprule
+Task (stage) & \textsc{Simple FT} & EWC & \textsc{LoRA} & \textsc{FLAME-CL} \\
+\midrule
+\multicolumn{5}{l}{\emph{Setup 1:} \textsc{Pheno} $\to$ \textsc{Los} $\to$ \textsc{Ihm}} \\
+\addlinespace[1pt]
+PHENO (s1) & 0.716 $\to$ \textbf{0.670} & 0.716 $\to$ \textbf{0.668} & 0.716 $\to$ 0.716 & 0.714 $\to$ 0.703 \\
+LOS (s2) & 0.820 $\to$ 0.800 & 0.825 $\to$ 0.805 & 0.787 $\to$ 0.787 & 0.822 $\to$ 0.821 \\
+IHM (s3) & 0.816 & 0.814 & 0.784 & 0.809 \\
+\addlinespace[1pt]
+AA $\uparrow$ & 0.762 & 0.762 & 0.762 & \textbf{0.777} \\
+F $\downarrow$ & 0.032 & 0.034 & 0.000 & 0.000 \\
+Enc.\ params, at inference (M) & 150.6 & 150.6 & 150.6 & 49.6$\to$65.1 \\
+MoE params, at inference (M) & 0.42 & 0.42 & 0.42$\to$0.76 & 0.17$\to$0.52 \\
+\midrule
+\multicolumn{5}{l}{\emph{Setup 2:} \textsc{Mor} $\to$ \textsc{Rad}} \\
+\addlinespace[1pt]
+MOR (s1) & 0.830 $\to$ \textbf{0.796} & 0.830 $\to$ \textbf{0.793} & 0.830 $\to$ 0.830 & 0.830 $\to$ 0.826 \\
+RAD (s2) & 0.751 & 0.750 & 0.676 & 0.737 \\
+\addlinespace[1pt]
+AA $\uparrow$ & 0.773 & 0.771 & 0.753 & \textbf{0.782} \\
+F $\downarrow$ & 0.034 & 0.037 & 0.000 & 0.000 \\
+Enc.\ params, at inference (M) & 1.84 & 1.84 & 1.84 & 1.71$\to$1.79 \\
+MoE params, at inference (M) & 0.42 & 0.42 & 0.42$\to$0.59 & 0.18$\to$0.35 \\
+\midrule
+\multicolumn{5}{l}{\emph{Setup 3:} \textsc{Density} $\to$ \textsc{Birads} $\to$ \textsc{Risk}} \\
+\addlinespace[1pt]
+DENSITY (s1) & 0.923 $\to$ \textbf{0.762} & 0.923 $\to$ \textbf{0.761} & 0.923 $\to$ 0.923 & 0.926 $\to$ \textbf{0.902} \\
+BIRADS (s2) & 0.812 $\to$ 0.806 & 0.813 $\to$ 0.809 & 0.743 $\to$ 0.743 & 0.813 $\to$ 0.809 \\
+RISK (s3) & 0.748 & 0.748 & 0.732 & 0.750 \\
+\addlinespace[1pt]
+AA $\uparrow$ & 0.772 & 0.772 & 0.799 & \textbf{0.820} \\
+F $\downarrow$ & 0.083 & 0.083 & 0.000 & 0.000 \\
+Enc.\ params, at inference (M) & 0.49 & 0.49 & 0.49 & 0.13$\to$0.39 \\
+MoE params, at inference (M) & 0.42 & 0.42 & 0.42$\to$0.76 & 0.17$\to$0.52 \\
+\midrule
+\multicolumn{5}{l}{\emph{Setup 4:} \{\textsc{Pheno}, \textsc{Density}\} $\to$ \{\textsc{Los}, \textsc{Birads}, \textsc{Mor}\} $\to$ \{\textsc{Ihm}, \textsc{Risk}, \textsc{Rad}\}} \\
+\addlinespace[1pt]
+PHENO (s1) & 0.714 $\to$ \textbf{0.669} & 0.714 $\to$ \textbf{0.657} & 0.714 $\to$ \textbf{0.688} & 0.712 $\to$ 0.703 \\
+DENSITY (s1) & 0.913 $\to$ \textbf{0.754} & 0.925 $\to$ \textbf{0.799} & 0.920 $\to$ \textbf{0.818} & 0.920 $\to$ 0.909 \\
+LOS (s2) & 0.825 $\to$ \textbf{0.797} & 0.819 $\to$ 0.800 & 0.822 $\to$ 0.822 & 0.820 $\to$ 0.819 \\
+BIRADS (s2) & 0.806 $\to$ \textbf{0.782} & 0.806 $\to$ \textbf{0.780} & 0.810 $\to$ 0.810 & 0.804 $\to$ 0.802 \\
+MOR (s2) & 0.831 $\to$ \textbf{0.785} & 0.825 $\to$ \textbf{0.767} & 0.830 $\to$ 0.830 & 0.827 $\to$ 0.827 \\
+IHM (s3) & 0.823 & 0.824 & 0.808 & 0.815 \\
+RISK (s3) & 0.750 & 0.742 & 0.758 & 0.745 \\
+RAD (s3) & 0.755 & 0.757 & 0.667 & 0.734 \\
+\addlinespace[1pt]
+AA $\uparrow$ & 0.764 & 0.766 & 0.775 & \textbf{0.794} \\
+F $\downarrow$ & 0.060 & 0.057 & 0.026 & 0.000 \\
+Enc.\ params, at inference (M) & 153.0 & 153.0 & 153.0 & 51.4$\to$67.4 \\
+MoE params, at inference (M) & 0.43 & 0.43 & 0.43$\to$0.80 & 0.19$\to$0.56 \\
+\bottomrule
+\end{tabular}
+\end{table}

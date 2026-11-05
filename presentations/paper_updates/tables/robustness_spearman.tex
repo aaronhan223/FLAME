@@ -1,0 +1,30 @@
+\begin{table}[t]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Rank correlations behind App.~\ref{app:robustness} (Setup 4 \textsc{FLAME-CL}, 31 (task, modality) pairs, 186 corrupted evaluations). Importance is the AUROC lost when the modality is removed; routing reaction is the Jensen--Shannon divergence of the gate distribution of a modality from its clean one. Per-task $p$-values are exact permutation tests ($n=3$--$5$ modalities).}
+\label{tab:robustness-spearman}
+\begin{tabular}{lccc}
+\toprule
+Pooled over all pairs & Spearman $\rho$ & $p$ & Pearson $r$ \\
+\midrule
+Routing JSD at 2$\times$ noise vs. importance & $+0.14$ & 0.44 & $-0.14$ \\
+Routing JSD at 4$\times$ noise vs. importance & $+0.06$ & 0.75 & $-0.19$ \\
+Routing JSD under shuffling vs. importance & $+0.12$ & 0.53 & $+0.27$ \\
+Routing JSD at 2$\times$ noise vs. contribution share & $+0.13$ & 0.48 & $-0.21$ \\
+Fusion contribution share vs. importance & $+0.73$ & $2.7\times10^{-6}$ & $+0.80$ \\
+Fusion magnitude share vs. importance & $+0.53$ & $2.4\times10^{-3}$ & $+0.79$ \\
+\bottomrule
+\end{tabular}
+\\[6pt]
+\begin{tabular}{lcccccccc}
+\toprule
+Share vs.\ importance, per task & PHENO & DENSITY & LOS & BIRADS & MOR & IHM & RISK & RAD \\
+\midrule
+Modalities $n$ & 3 & 4 & 3 & 4 & 5 & 3 & 4 & 5 \\
+Spearman $\rho$ & $+1.00$ & $+0.80$ & $+1.00$ & $+1.00$ & $+1.00$ & $+1.00$ & $+0.00$ & $+0.20$ \\
+Exact $p$ & 0.33 & 0.33 & 0.33 & 0.08 & 0.02 & 0.33 & 1.00 & 0.78 \\
+Smallest attainable $p$ & 0.33 & 0.08 & 0.33 & 0.08 & 0.02 & 0.33 & 0.08 & 0.02 \\
+\bottomrule
+\end{tabular}
+\end{table}
