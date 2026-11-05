@@ -1,6 +1,7 @@
 # Camera-ready updates promised in the rebuttal
 
-Everything here is generated from result files already on io79; no new training was run.
+Everything here is generated from result files and checkpoints already on io79; no new training was run.
+The only new GPU work is evaluation-only collection on the saved FLAME-CL checkpoints for the alignment figure (§1, last row).
 Open `preview/preview.pdf` first: it shows every figure and table at NeurIPS text width (5.5 in).
 
 ```bash
@@ -25,12 +26,14 @@ bash presentations/paper_updates/make_all.sh
 | Page 9 has too many tables | `figs/fig_cl_summary_tab3_tab4.pdf` (Tab. 3 as a dot/bar chart + Tab. 4 as a heatmap) | replaces Tabs. 3 and 4 (exact values stay in Tabs. 14, 16) |
 | (extra) Tabs. 13/14 regenerated from the same runs | `tables/tab13_tab14_setup4.tex` | replaces Tabs. 13, 14 |
 | (extra) Figs. 8, 9 from the same FLAME-CL runs as Fig. 5 | `figs/fig8_cl_vs_lifelong_pt.pdf`, `figs/fig9_cl_vs_lora.pdf` | replace Figs. 8, 9 (Fig. 9 is a subset of Fig. 5; dropping it is suggested) |
+| Continual-phase spectra **and singular-vector alignment across all four sequences** (to 9k3u) | **Path A (recommended):** `figs/fig_cl_spectra_alignment.pdf` (4 setups × {input, weight-only, data-aware, alignment}) + `tables/tab_cl_spectra_alignment.tex`. **Path B:** keep Fig. 16 and add `figs/fig16_setup{1,2,3}_stage*.png` (same format as Fig. 16) + `figs/fig_cl_alignment.pdf` (alignment only) + the same table. LaTeX for both, plus the new D.4.3 paragraph: `tables/cl_alignment_snippets.tex` | App. D.4.3; path A replaces Fig. 16 |
 
 **Formats.** PNG twins of every figure and the raw values in `data/*.csv` exist on io79 (rsync them, or rerun `make_all.sh`).
 They are not pushed, because the repo `.gitignore` excludes `*.png` and `*.csv`. Markdown copies of all tables are in `tables/*.md`.
 
 **LaTeX.** The `.tex` tables need only `booktabs`. Their `\label`s are new (`tab:cl-fig5-per-stage`, `tab:cl-new-baselines-s123`,
-`tab:cl-setup4-retention`, `tab:cl-setup4-forgetting`, `tab:aux-bal-per-task`, `tab:aux-int-per-task`, `tab:robustness-spearman`).
+`tab:cl-setup4-retention`, `tab:cl-setup4-forgetting`, `tab:aux-bal-per-task`, `tab:aux-int-per-task`, `tab:robustness-spearman`,
+`tab:cl-spectra-alignment`, `fig:cl-spectra-alignment`, `fig:cl-alignment`). Path B's Setup 1–3 pages use `subfigure`, as Fig. 16 does (`subcaption`).
 The robustness caption refers to `app:robustness`: rename that reference to App. D.6's label.
 
 **Variants.** `*_attributable.pdf` twins plot method-attributable parameter counts instead of inference-time totals (see §2).
@@ -49,6 +52,8 @@ to full rank; the default r = 32 is outlined.
 
 **New-baselines figure.** FLAME-CL against the MoE-based (TRGE, SAME) and distillation (LwF) baselines on Setups 1–3 (seed 42; Setup 4
 in Tabs. 13–14). Parameter panels are inference-time totals: TRGE, SAME and LwF adapt only the MoE and keep the full encoder.
+
+**Spectra/alignment figure.** Full captions for both paths are in `tables/cl_alignment_snippets.tex`.
 
 ## 2. Which runs are used (single source of truth: `scripts/cl_data.py`)
 
@@ -70,6 +75,15 @@ All runs are under `src/checkpoints/continual/laplace/<sequence>/<modalities>/<s
   - Method-attributable counts cannot compare methods that adapt different parts: LoRA, LwF, SAME, TRGE and Lifelong-PT adapt only the
     MoE, so their attributable encoder count is 0, although they keep the full 153M encoder.
 - **Checks**: the loader reproduces Tab. 14 (every F, BWT and AA cell) and every row of Tab. 3 (AA, F, params) exactly.
+- **Spectra/alignment** (same FLAME-CL runs, seed 42; Setup 4 also seeds 703/8622/92784):
+  - **Path A source:** `src/analysis/eval_cl_stage_geometry.py`. It takes the untruncated stage component and the routed-input second
+    moments on the first ≤512 validation samples of each task.
+  - **Path B / Fig. 16 source:** `eval_cl_spectrum.py` on test batches. Fig. 16 used 10 batches; Setup 2 uses 64, because eICU gives
+    5 tokens per sample and 10 batches leave about 160 tokens per expert for a 128×128 covariance.
+  - **Agreement:** the two agree within ±1–2 ranks on Setups 1 and 3. Setup 4 stage 1 differs (input r90 4 vs 8) because its 10 test
+    batches are dominated by EMBED (512 samples per batch vs 8 for MIMIC).
+  - **Checks:** the weight spectra are identical between the two. The kept rank-32 factors match the top-32 SVD of the untruncated
+    component (relative difference 9e-7).
 
 ## 3. Text the new numbers contradict (please check before submitting)
 
@@ -118,6 +132,21 @@ All runs are under `src/checkpoints/continual/laplace/<sequence>/<modalities>/<s
     - **Spillover:** exactly 0.
     - **Tab. 17 medians:** −4.8% / −15.1%, reproduced.
 12. **If you keep Tab. 3**, its "–" parameter cells can be filled with inference totals: TRGE 160.9M, SAME 160.0M, LwF 160.1M, EWC 160.0M.
+13. **"Zero-initialized additive component" (Sec. 2.2, Alg. 1, App. B.2) and App. D.4.3.**
+    - **What the code does:** it zero-initialises only the new component's output layer fc2 (`src/continual/cl_moe.py: zero_init_fc2`).
+      fc1 and the temporal conv keep PyTorch's default random init. The component therefore starts as an exact no-op, but not every
+      matrix starts at zero.
+    - **What the new figure shows:** Proposition 2's prediction holds for the zero-initialised fc2.
+      - Data-aware r90 is 3 (range 1–8).
+      - At least 99.8% of the data-aware energy is kept at r = 32.
+      - Alignment A(16) = 0.41 against 0.125 random, on all four sequences.
+    - **The random-init fc1** stays near chance alignment (A(16) = 0.16). Its data-aware energy is not low-rank (r90 ≈ 66; 65% kept at
+      r = 32). Its truncation is safe only behaviourally (Tab. 4 rank sweep; the first → final AUROC of Tab. 13 and Fig. 5).
+    - **Current D.4.3 text:** it says "one group of sublayers concentrates nearly all of its energy in the first few ranks"; those are
+      the fc2s.
+    - **Suggested wording** for Sec. 2.2 and a replacement D.4.3 paragraph are in `tables/cl_alignment_snippets.tex`.
+    - **Stage numbering:** Fig. 16 (its PNG titles and subcaptions) numbers stages from 0, while Fig. 5 and Tabs. 13/14 number them from
+      1. The new figure and table use 1–3.
 
 Also: `src/results/flame_aux_ablation/aux_ablation_tables.md` (old) has Mortality and Readmission swapped. Its `.tex`/`.csv` siblings and the
 new tables here are correct.
@@ -138,6 +167,10 @@ condense Figs. 11–14 (below).
 **Page 49.** Tab. 19 alone, because Fig. 27 (five full-width rows) is a full-page float. Either show stages 0/2/4 only or shrink the rows
 so Tab. 19 and Fig. 27 share a page, or let the D.8/E text follow Tab. 19.
 
+**Spectra/alignment (App. D.4.3).** Path A (one 4.7 in figure + table, about one page) takes the place of today's full-page Fig. 16, so
+covering all four sequences costs about nothing. Without the table (numbers are in the D.4.3 paragraph) it saves about 0.4 page. Path B
+(Fig. 16 format for Setups 1–3) adds about 3 pages.
+
 **Trim candidates** (about 9 pages in total):
 
 | Cut | Saves | Why it is safe |
@@ -155,12 +188,8 @@ The NeurIPS checklist (pp. 53–60) is mandatory; only your justification text c
 
 1. Insert the files in §1 with the suggested captions; pick compact vs. tall Fig. 5, and tables vs. figure for Tabs. 3–4.
 2. Make the text edits in §3 (items 2–9 change numbers or claims; 1, 10–12 are small).
-3. Optional (rebuttal promise to 9k3u):
-   - **The gap:** the rebuttal promised singular-vector alignment plots "across all four sequences". The paper (Fig. 16) and the repo
-     README only show Setup 4 spectra.
-   - **What exists:** the Setup 4 alignment figure from the talk work, `presentations/flame_talk/figs/sim/S2_stack_geometry.pdf`
-     (4 seeds; numbers in its `MANIFEST.md`).
-   - **Options:** add it to App. D.4.3 and say "Setup 4", or run `src/analysis/run_cl_stage_geometry.sh` for Setups 1–3 (GPU, ~25 min each).
+3. Spectra + alignment for all four sequences (rebuttal promise to 9k3u): pick path A or B (§1, last row; §4). Update D.4.3 with the
+   paragraph in `tables/cl_alignment_snippets.tex`, and the "zero-initialized" wording in Sec. 2.2 (§3 item 13).
 4. Apply the layout and trim choices in §4, recompile, and check that the main text is still within the page limit and that all
    cross-references resolve.
 
@@ -174,5 +203,6 @@ The NeurIPS checklist (pp. 53–60) is mandatory; only your justification text c
 | `scripts/make_cl_tables.py` | CL tables + `data/cl_trajectories_all.csv` |
 | `scripts/make_aux_loss_tables.py` | per-task loss-weight tables (reads raw per-seed results via `src/make_aux_ablation_tables.py`) |
 | `scripts/make_robustness_stats.py` | D.6 statistics from the sweep JSON |
+| `scripts/make_cl_alignment_figure.py` | continual-phase spectra + alignment figures/table; copies the Fig. 16-format panels. Inputs come from `src/analysis/run_cl_stage_geometry.sh` and `src/analysis/run_cl_spectrum.sh` (both now take `TASK_RAW`/`MODELTYPE`/`WD` for Setups 1–3; usage in their headers) |
 | `scripts/paper_style.py` | shared matplotlib style; colours checked with the dataviz CVD validator (FLAME-CL red, LoRA green, Simple FT blue, EWC orange) |
 | `make_all.sh` | runs everything and builds `preview/preview.pdf` |

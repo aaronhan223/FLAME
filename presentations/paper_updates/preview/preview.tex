@@ -35,6 +35,17 @@
 \begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{fig9_cl_vs_lora.pdf}
 \caption{(Fig.~9 redraw) \flamecl{} vs.\ \textsc{LoRA} (MoE adapters); a subset of Fig.~\ref{fig:cl}, so it can be dropped.}\end{figure}
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{fig_cl_spectra_alignment.pdf}
+\caption{(New, App.~D.4.3; path A, replaces Fig.~16.) Continual-stage spectra and singular-vector alignment for the four CL sequences (rows; \flamecl{}, seed 42): input spectrum, weight-only spectrum, data-aware energy, and $A(r)=\lVert V_r^\top Q_r\rVert_F^2/r$ (dotted: random, $r/128$). Median over the 5 experts; solid fc2 (zero-initialised at stages $\geq 2$), dashed fc1 (random init); colour = stage; vertical line $r_t=32$. Numbers in Tab.~\ref{tab:cl-spectra-alignment}.}\end{figure}
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{fig_cl_alignment.pdf}
+\caption{(New, App.~D.4.3; path B, next to Fig.~16 extended with Setups 1--3.) Alignment column only.}\end{figure}
+\begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{fig16_setup1_stage0.png}\\[2pt]
+\includegraphics[width=\textwidth]{fig16_setup1_stage1.png}\\[2pt]
+\includegraphics[width=\textwidth]{fig16_setup1_stage2.png}
+\caption{(Path B) Fig.~16 format for Setup 1; Setups 2--3 are \texttt{figs/fig16\_setup\{2,3\}\_stage*.png}, layout in \texttt{tables/cl\_alignment\_snippets.tex}.}\end{figure}
 \clearpage
 \section*{Tables}
 \input{../tables/tab_fig5_per_stage.tex}
@@ -42,5 +53,6 @@
 \input{../tables/tab13_tab14_setup4.tex}
 \input{../tables/tab_aux_loss_per_task.tex}
 \input{../tables/robustness_spearman.tex}
+\input{../tables/tab_cl_spectra_alignment.tex}
 \paragraph{D.6 drop-in text.}\input{../tables/robustness_d6_snippet.tex}
 \end{document}

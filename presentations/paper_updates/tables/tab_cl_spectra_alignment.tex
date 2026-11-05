@@ -1,0 +1,29 @@
+\begin{table}[t]
+\centering
+\scriptsize
+\setlength{\tabcolsep}{3.2pt}
+\caption{Continual-phase spectra and singular-vector alignment of the active component of each stage (FLAME-CL, seed 42), median over the 5 experts, reported as fc2\,/\,fc1. $r_{90}$: rank at 90\% cumulative energy (ambient 128). Kept: data-aware energy inside the top-32 singular directions, i.e.\ what survives the $r_t{=}32$ truncation. $A(r)=\lVert V_r^\top Q_r\rVert_F^2/r$ between the top-$r$ right singular vectors of the component and the top-$r$ eigenvectors of its routed-input second moment; random subspaces give $r/128$ (0.125 at $r{=}16$, 0.25 at $r{=}32$). fc2 is zero-initialised at stages $\geq$2; fc1, and both sublayers at stage 1, start from random init.}
+\label{tab:cl-spectra-alignment}
+\begin{tabular}{@{}llccccc@{}}
+\toprule
+ & & \multicolumn{3}{c}{$r_{90}$ (fc2\,/\,fc1)} & Kept at $r_t{=}32$ & $A(16)$ \\
+\cmidrule(lr){3-5}
+Setup & Stage & input & weight-only & data-aware & data-aware & (random 0.125) \\
+\midrule
+1 & 1: PHENO & 4\,/\,4 & 65\,/\,66 & 37\,/\,45 & 0.87\,/\,0.84 & 0.21\,/\,0.20 \\
+ & 2: LOS & 5\,/\,3 & 9\,/\,65 & 2\,/\,74 & 1.00\,/\,0.51 & 0.46\,/\,0.14 \\
+ & 3: IHM & 4\,/\,2 & 9\,/\,65 & 3\,/\,69 & 1.00\,/\,0.65 & 0.44\,/\,0.15 \\
+\addlinespace[2pt]
+2 & 1: MOR & 3\,/\,7 & 66\,/\,66 & 47\,/\,50 & 0.83\,/\,0.78 & 0.17\,/\,0.17 \\
+ & 2: RAD & 8\,/\,7 & 10\,/\,66 & 3\,/\,62 & 1.00\,/\,0.64 & 0.36\,/\,0.15 \\
+\addlinespace[2pt]
+3 & 1: DENSITY & 6\,/\,12 & 66\,/\,65 & 50\,/\,55 & 0.77\,/\,0.74 & 0.16\,/\,0.15 \\
+ & 2: BIRADS & 5\,/\,6 & 9\,/\,66 & 6\,/\,62 & 1.00\,/\,0.69 & 0.41\,/\,0.16 \\
+ & 3: RISK & 2\,/\,2 & 7\,/\,66 & 2\,/\,69 & 1.00\,/\,0.56 & 0.32\,/\,0.12 \\
+\addlinespace[2pt]
+4 & 1: PHENO+DENSITY & 4\,/\,4 & 66\,/\,66 & 41\,/\,41 & 0.86\,/\,0.85 & 0.21\,/\,0.23 \\
+ & 2: LOS+BIRADS+MOR & 7\,/\,5 & 12\,/\,66 & 1\,/\,68 & 1.00\,/\,0.69 & 0.44\,/\,0.16 \\
+ & 3: IHM+RISK+RAD & 4\,/\,5 & 11\,/\,65 & 3\,/\,61 & 1.00\,/\,0.76 & 0.41\,/\,0.16 \\
+\bottomrule
+\end{tabular}
+\end{table}

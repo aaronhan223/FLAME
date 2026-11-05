@@ -8,6 +8,7 @@ $PY make_cl_summary_figure.py > /dev/null
 $PY make_cl_tables.py
 $PY make_aux_loss_tables.py > /dev/null
 $PY make_robustness_stats.py > /dev/null
+$PY make_cl_alignment_figure.py > /dev/null
 cd ../preview
 pdflatex -interaction=nonstopmode -halt-on-error preview.tex > build.log
 pdflatex -interaction=nonstopmode -halt-on-error preview.tex > build.log
