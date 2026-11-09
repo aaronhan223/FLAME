@@ -36,6 +36,9 @@
 \includegraphics[width=\textwidth]{fig9_cl_vs_lora.pdf}
 \caption{(Fig.~9 redraw) \flamecl{} vs.\ \textsc{LoRA} (MoE adapters); a subset of Fig.~\ref{fig:cl}, so it can be dropped.}\end{figure}
 \begin{figure}[H]\centering
+\includegraphics[width=\textwidth]{fig_cl_lora_variants.pdf}
+\caption{(New; can replace Fig.~9) \flamecl{} vs.\ the two \textsc{LoRA} variants: rank-32 adapters on the MoE experts only (the baseline of Fig.~\ref{fig:cl}) and on the encoders and the MoE (seed 42). Parameter panels are inference-time totals; the method-attributable twin is \texttt{fig\_cl\_lora\_variants\_attributable.pdf}. Numbers in Tabs.~\ref{tab:cl-lora-variants-summary} and~\ref{tab:cl-lora-variants}.}\end{figure}
+\begin{figure}[H]\centering
 \includegraphics[width=\textwidth]{fig_cl_spectra_alignment.pdf}
 \caption{(New, App.~D.4.3; path A, replaces Fig.~16.) Continual-stage spectra and singular-vector alignment for the four CL sequences (rows; \flamecl{}, seed 42): input spectrum, weight-only spectrum, data-aware energy, and $A(r)=\lVert V_r^\top Q_r\rVert_F^2/r$ (dotted: random, $r/128$). Median over the 5 experts; solid fc2 (zero-initialised at stages $\geq 2$), dashed fc1 (random init); colour = stage; vertical line $r_t=32$. Numbers in Tab.~\ref{tab:cl-spectra-alignment}.}\end{figure}
 \begin{figure}[H]\centering
@@ -50,6 +53,8 @@
 \section*{Tables}
 \input{../tables/tab_fig5_per_stage.tex}
 \input{../tables/tab_new_baselines_setups123.tex}
+\input{../tables/tab_lora_variants_summary.tex}
+\input{../tables/tab_lora_variants_per_stage.tex}
 \input{../tables/tab13_tab14_setup4.tex}
 \input{../tables/tab_aux_loss_per_task.tex}
 \input{../tables/robustness_spearman.tex}

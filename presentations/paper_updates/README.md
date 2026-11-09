@@ -26,6 +26,7 @@ bash presentations/paper_updates/make_all.sh
 | Page 9 has too many tables | `figs/fig_cl_summary_tab3_tab4.pdf` (Tab. 3 as a dot/bar chart + Tab. 4 as a heatmap) | replaces Tabs. 3 and 4 (exact values stay in Tabs. 14, 16) |
 | (extra) Tabs. 13/14 regenerated from the same runs | `tables/tab13_tab14_setup4.tex` | replaces Tabs. 13, 14 |
 | (extra) Figs. 8, 9 from the same FLAME-CL runs as Fig. 5 | `figs/fig8_cl_vs_lifelong_pt.pdf`, `figs/fig9_cl_vs_lora.pdf` | replace Figs. 8, 9 (Fig. 9 is a subset of Fig. 5; dropping it is suggested) |
+| FLAME-CL vs **both LoRA variants**: MoE-only (the reported baseline) and encoder+MoE | `figs/fig_cl_lora_variants.pdf` (Fig. 9 format, 3 methods; `_attributable` twin); main text: `tables/tab_lora_variants_summary.tex` (AA, F, encoder params per setup); appendix: `tables/tab_lora_variants_per_stage.tex` (per task, both parameter conventions) | main text next to RQ3/RQ4 or App. D.3.1; the figure can replace Fig. 9 |
 | Continual-phase spectra **and singular-vector alignment across all four sequences** (to 9k3u) | **Path A (recommended):** `figs/fig_cl_spectra_alignment.pdf` (4 setups × {input, weight-only, data-aware, alignment}) + `tables/tab_cl_spectra_alignment.tex`. **Path B:** keep Fig. 16 and add `figs/fig16_setup{1,2,3}_stage*.png` (same format as Fig. 16) + `figs/fig_cl_alignment.pdf` (alignment only) + the same table. LaTeX for both, plus the new D.4.3 paragraph: `tables/cl_alignment_snippets.tex` | App. D.4.3; path A replaces Fig. 16 |
 
 **Formats.** PNG twins of every figure and the raw values in `data/*.csv` exist on io79 (rsync them, or rerun `make_all.sh`).
@@ -33,7 +34,7 @@ They are not pushed, because the repo `.gitignore` excludes `*.png` and `*.csv`.
 
 **LaTeX.** The `.tex` tables need only `booktabs`. Their `\label`s are new (`tab:cl-fig5-per-stage`, `tab:cl-new-baselines-s123`,
 `tab:cl-setup4-retention`, `tab:cl-setup4-forgetting`, `tab:aux-bal-per-task`, `tab:aux-int-per-task`, `tab:robustness-spearman`,
-`tab:cl-spectra-alignment`, `fig:cl-spectra-alignment`, `fig:cl-alignment`). Path B's Setup 1–3 pages use `subfigure`, as Fig. 16 does (`subcaption`).
+`tab:cl-spectra-alignment`, `fig:cl-spectra-alignment`, `fig:cl-alignment`, `tab:cl-lora-variants`, `tab:cl-lora-variants-summary`). Path B's Setup 1–3 pages use `subfigure`, as Fig. 16 does (`subcaption`).
 The robustness caption refers to `app:robustness`: rename that reference to App. D.6's label.
 
 **Variants.** `*_attributable.pdf` twins plot method-attributable parameter counts instead of inference-time totals (see §2).
@@ -66,8 +67,11 @@ All runs are under `src/checkpoints/continual/laplace/<sequence>/<modalities>/<s
     forgetting-free: in Setup 2, MOR rises 0.826 → 0.829 after stage 2.
 - **LoRA**: `cl_lora_lorarank32_router_per_task_router_fixed_experts_rank32`, i.e. rank-32 adapters on the **MoE experts only**.
   - This is the baseline the original paper figures plotted (old Fig. 9 and the registry), and the one the authors intend.
-  - App. D.3.1's sentence "LoRA grows from 109.54M to 125.29M encoder parameters" quotes a different run (encoder + MoE adapters),
-    so that sentence must change (see §3).
+  - App. D.3.1's sentence "LoRA grows from 109.54M to 125.29M encoder parameters" quotes a different run (encoder + MoE adapters).
+- **LoRA (encoder+MoE)**: `cl_lora_lorarank32_target_moe_and_encoder_…`, i.e. rank-32 adapters on the encoders and the MoE.
+  - Shown only as an extra variant, in its own figure and tables. Fig. 5 keeps the MoE-only baseline.
+  - It is the run behind the D.3.1 sentence: 109.54 → 125.29M method-attributable encoder parameters in Setup 4.
+  - Only seed 42 exists for either LoRA variant.
 - **Simple FT / EWC**: `cl_ewc_lamb{0,1}…_enc_all_trainable_target_moe_and_encoder`.
 - **LwF / SAME (no-mask) / TRGE / Lifelong-PT**: the same directories as the registry.
 - **Seeds**: seed 42 everywhere, except the Setup 4 multi-seed results (703, 8622, 92784); those are the only seeds on disk for those methods.
@@ -95,13 +99,21 @@ All runs are under `src/checkpoints/continual/laplace/<sequence>/<modalities>/<s
    - **Method-attributable counts:** "5–15×" exists only against Simple FT/EWC in Setups 1 and 4 (4.6–14×). It cannot include LoRA,
      which adds no encoder parameters.
    - Suggested: "2.3–3× fewer parameters at inference than Simple FT, EWC and LoRA on the sequences with MIMIC-IV encoders".
+   - **Against encoder+MoE LoRA:** 5.3× and 5.2× fewer method-attributable encoder parameters in Setups 1 and 4 (1.8–1.9× in
+     Setups 2–3), and 2.5× fewer at inference. So "5–15× fewer than fine-tuning, EWC and LoRA" holds on method-attributable counts
+     in Setups 1 and 4, provided "LoRA" means the encoder+MoE variant there.
 3. **App. D.3.1 parameter paragraph.** In Setup 4, at inference:
    - Simple FT, EWC and LoRA all sit flat at 153.0M encoder parameters.
    - FLAME-CL grows 51.4 → 67.4M.
    - MoE: FLAME-CL 0.19 → 0.56M vs. LoRA 0.43 → 0.80M. The current attributable MoE numbers, 0.17 → 0.50 vs. 0.41 → 0.74, are also
      correct for MoE-only LoRA.
-   - Delete the "LoRA grows from 109.54M to 125.29M" sentence.
-4. **LoRA comparison claims** (D.3.1, RQ3, D.3.8, Fig. 9 caption).
+   - The "LoRA grows from 109.54M to 125.29M" sentence is correct for **encoder+MoE** LoRA (method-attributable). Keep it only if
+     the text names that variant (e.g. next to `tab_lora_variants_summary.tex`); otherwise delete it.
+4. **LoRA comparison claims** (D.3.1, RQ3, D.3.8, Fig. 9 caption). The old text matches the **encoder+MoE** run, while the old
+   figures plotted the **MoE-only** run. Now that both are reported, say which LoRA each claim is about:
+   - **vs encoder+MoE LoRA:** "within 0.01 AA on every sequence" is true (−0.008 to +0.002). Neither variant forgets. FLAME-CL needs
+     2.5× fewer encoder parameters at inference in Setups 1 and 4.
+   - **vs MoE-only LoRA:** the points below.
    - **AA:** "FLAME-CL is within 0.01 of LoRA on every sequence" becomes "FLAME-CL exceeds LoRA by 0.015–0.029 AA on every sequence".
    - **Retention:** "LoRA matches retention only by freezing the base" is false in Setup 4. LoRA keeps old tasks in Setups 1–3 but loses
      DENSITY 0.92 → 0.82 and PHENO 0.71 → 0.69 there (F 0.026).
@@ -198,7 +210,7 @@ The NeurIPS checklist (pp. 53–60) is mandatory; only your justification text c
 | Script | Output |
 |---|---|
 | `scripts/cl_data.py` | run registry + loaders (imports the parsers from `src/aggregate_continual.py`) |
-| `scripts/make_cl_figures.py` | Figs. 5, 8, 9, 10 and the new-baseline figures |
+| `scripts/make_cl_figures.py` | Figs. 5, 8, 9, 10, the new-baseline figures and the LoRA-variants figure |
 | `scripts/make_cl_summary_figure.py` | figure version of Tabs. 3–4 |
 | `scripts/make_cl_tables.py` | CL tables + `data/cl_trajectories_all.csv` |
 | `scripts/make_aux_loss_tables.py` | per-task loss-weight tables (reads raw per-seed results via `src/make_aux_ablation_tables.py`) |

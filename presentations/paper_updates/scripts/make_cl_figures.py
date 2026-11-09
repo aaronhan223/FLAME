@@ -50,6 +50,13 @@ PARAM_LABEL = {
 }
 
 
+LABEL_OVERRIDE = {}   # per-figure legend names (e.g. 'LoRA (MoE only)' next to its encoder variant)
+
+
+def _label(m):
+    return LABEL_OVERRIDE.get(m, D.DISPLAY[m])
+
+
 def _offsets(methods, width=0.24):
     n = len(methods)
     return {m: (i - (n - 1) / 2) * (width / max(n - 1, 1)) for i, m in enumerate(methods)}
@@ -257,9 +264,9 @@ def side_block_height():
 def draw_legend(fig, methods, setups, y_frac):
     present = [t for t in S.TASK_ORDER if any(t in D.tasks(s) for s in setups)]
     mh = [Line2D([0], [0], **{k: v for k, v in _style(m, 'param').items() if k != 'zorder'},
-                 label=D.DISPLAY[m]) for m in methods]
+                 label=_label(m)) for m in methods]
     for h in mh:
-        h.set_linewidth(1.8 if h.get_label() == 'FLAME-CL' else 1.1)
+        h.set_linewidth(1.8 if h.get_label() == _label('ours') else 1.1)
     th = [Line2D([0], [0], color=S.INK_2, linestyle='none', marker=S.TASK_MARKER[t],
                  markersize=3.6, markerfacecolor=S.INK_2, label=D.TASK_LABEL[t]) for t in present]
     l1 = fig.legend(handles=mh, loc='center left', bbox_to_anchor=(0.01, y_frac),
@@ -301,7 +308,7 @@ def grid_figure(methods, setups, seeds_for, kind, metric='auroc', with_params=Tr
 def _slot_legend(fig, methods, setups, x, y):
     present = [t for t in S.TASK_ORDER if any(t in D.tasks(s) for s in setups)]
     mh = [Line2D([0], [0], **{k: v for k, v in _style(m, 'param').items() if k != 'zorder'},
-                 label=D.DISPLAY[m]) for m in methods]
+                 label=_label(m)) for m in methods]
     th = [Line2D([0], [0], color=S.INK_2, linestyle='none', marker=S.TASK_MARKER[t],
                  markersize=3.8, markerfacecolor=S.INK_2, label=D.TASK_LABEL[t]) for t in present]
     l1 = fig.legend(handles=mh, loc='lower left', bbox_to_anchor=(x, y + 0.01), ncol=2,
@@ -324,7 +331,7 @@ def single_setup_figure(setup, methods, seeds, kind):
     draw_block(P, 0.0, 0.02, bw, setup, methods, seeds, kind)
     present = [t for t in S.TASK_ORDER if t in D.tasks(setup)]
     mh = [Line2D([0], [0], **{k: v for k, v in _style(m, 'param').items() if k != 'zorder'},
-                 label=D.DISPLAY[m]) for m in methods]
+                 label=_label(m)) for m in methods]
     th = [Line2D([0], [0], color=S.INK_2, linestyle='none', marker=S.TASK_MARKER[t],
                  markersize=3.6, markerfacecolor=S.INK_2, label=D.TASK_LABEL[t]) for t in present]
     y1 = (leg_h * (0.72 if n_tasks <= 4 else 0.78)) / H
@@ -380,6 +387,15 @@ def main():
          'fig8_cl_vs_lifelong_pt')
     save(grid_figure(['lora', 'ours'], [1, 2, 3, 4], s42, 'inference'),
          'fig9_cl_vs_lora')
+    # LoRA variants: the reported MoE-only baseline next to the encoder+MoE run
+    # (rank-32 adapters on encoders and MoE; the run behind App. D.3.1's 109.54M -> 125.29M).
+    LABEL_OVERRIDE.update({'lora': 'LoRA (MoE only)', 'lora_encmoe': 'LoRA (encoder+MoE)'})
+    try:
+        for kind, suffix in (('inference', ''), ('attributable', '_attributable')):
+            save(grid_figure(['lora', 'lora_encmoe', 'ours'], [1, 2, 3, 4], s42, kind),
+                 'fig_cl_lora_variants' + suffix)
+    finally:
+        LABEL_OVERRIDE.clear()
 
 
 if __name__ == '__main__':

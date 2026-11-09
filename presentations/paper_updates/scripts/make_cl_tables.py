@@ -7,6 +7,10 @@
                                   1-3 (Tab. 13/14 format, seed 42).
   tab13_tab14_setup4.tex          Tabs. 13 and 14 regenerated from the
                                   first_appearance FLAME-CL runs (3 timestamp seeds).
+  tab_lora_variants_per_stage.tex FLAME-CL vs LoRA (MoE only, the reported baseline)
+                                  vs LoRA (encoder+MoE), Setups 1-4, seed 42: first
+                                  learned -> final, AA, F, params (both conventions).
+  tab_lora_variants_summary.tex   compact main-text version: AA, F, encoder params.
   cl_trajectories_all.csv         every (setup, method, seed, task, stage) value.
   cl_tables.md                    Markdown copy of all of the above.
 
@@ -39,7 +43,11 @@ SEQ_TEX = {
 SEQ_MD = {1: 'PHENO → LOS → IHM', 2: 'MOR → RAD', 3: 'DENSITY → BIRADS → RISK',
           4: '{PHENO, DENSITY} → {LOS, BIRADS, MOR} → {IHM, RISK, RAD}'}
 TEX_NAME = {'ours': r'\textsc{FLAME-CL}', 'simple_ft': r'\textsc{Simple FT}', 'ewc': 'EWC',
-            'lora': r'\textsc{LoRA}', 'trge': 'TRGE', 'same': 'SAME', 'lwf': r'L\textsc{w}F'}
+            'lora': r'\textsc{LoRA}', 'trge': 'TRGE', 'same': 'SAME', 'lwf': r'L\textsc{w}F',
+            'lora_encmoe': r'\textsc{LoRA} (enc.+MoE)'}
+LORA_TEX = {'ours': r'\textsc{FLAME-CL}', 'lora': r'\textsc{LoRA} (MoE)',
+            'lora_encmoe': r'\textsc{LoRA} (enc.+MoE)'}
+LORA_MD = {'ours': 'FLAME-CL', 'lora': 'LoRA (MoE only)', 'lora_encmoe': 'LoRA (encoder+MoE)'}
 DROP = 0.02
 
 
@@ -82,7 +90,6 @@ def setup_block(setup, methods, param_kind, seed=42):
     K = len(D.SETUPS[setup]['stages'])
     fs = D.first_stage(setup)
     summ = {m: D.cl_summary(setup, m, seed) for m in methods}
-    prm = {m: D.params(setup, m, seed, param_kind) for m in methods}
     n = len(methods)
     tex = [r'\midrule',
            rf'\multicolumn{{{n + 1}}}{{l}}{{\emph{{Setup {setup}:}} {SEQ_TEX[setup]}}} \\',
@@ -106,34 +113,79 @@ def setup_block(setup, methods, param_kind, seed=42):
     md += ['| AA ↑ | ' + ' | '.join(f"{summ[m]['AA']:.3f}" for m in methods) + ' |',
            '| F ↓ | ' + ' | '.join(f"{summ[m]['F']:.3f}" for m in methods) + ' |']
 
-    def _p(m):
-        if prm[m] is None:
-            return '--'
-        a, b = prm[m][0], prm[m][K - 1]
-        fmt = (lambda v: f'{v:.1f}') if max(a['enc'], b['enc']) >= 10 else (lambda v: f'{v:.2f}')
-        enc = fmt(a['enc']) if abs(a['enc'] - b['enc']) < 1e-9 else f"{fmt(a['enc'])}$\\to${fmt(b['enc'])}"
-        moe = f"{a['moe']:.2f}" if abs(a['moe'] - b['moe']) < 1e-9 else f"{a['moe']:.2f}$\\to${b['moe']:.2f}"
-        return enc, moe
-    lbl = 'method-attr.' if param_kind == 'attributable' else 'at inference'
-    tex.append(f'Enc.\\ params, {lbl} (M) & ' + ' & '.join(_p(m)[0] for m in methods) + r' \\')
-    tex.append(f'MoE params, {lbl} (M) & ' + ' & '.join(_p(m)[1] for m in methods) + r' \\')
-    md.append(f'| Enc. params, {lbl} (M) | ' + ' | '.join(_p(m)[0].replace('$\\to$', '→') for m in methods) + ' |')
-    md.append(f'| MoE params, {lbl} (M) | ' + ' | '.join(_p(m)[1].replace('$\\to$', '→') for m in methods) + ' |')
+    kinds = (param_kind,) if isinstance(param_kind, str) else tuple(param_kind)
+    for kind in kinds:
+        prm = {m: D.params(setup, m, seed, kind) for m in methods}
+
+        def _p(m):
+            if prm[m] is None:
+                return '--', '--'
+            a, b = prm[m][0], prm[m][K - 1]
+            fmt = (lambda v: f'{v:.1f}') if max(a['enc'], b['enc']) >= 10 else (lambda v: f'{v:.2f}')
+            enc = fmt(a['enc']) if abs(a['enc'] - b['enc']) < 1e-9 else f"{fmt(a['enc'])}$\\to${fmt(b['enc'])}"
+            moe = f"{a['moe']:.2f}" if abs(a['moe'] - b['moe']) < 1e-9 else f"{a['moe']:.2f}$\\to${b['moe']:.2f}"
+            return enc, moe
+        lbl = 'method-attr.' if kind == 'attributable' else 'at inference'
+        tex.append(f'Enc.\\ params, {lbl} (M) & ' + ' & '.join(_p(m)[0] for m in methods) + r' \\')
+        tex.append(f'MoE params, {lbl} (M) & ' + ' & '.join(_p(m)[1] for m in methods) + r' \\')
+        md.append(f'| Enc. params, {lbl} (M) | ' + ' | '.join(_p(m)[0].replace('$\\to$', '→') for m in methods) + ' |')
+        md.append(f'| MoE params, {lbl} (M) | ' + ' | '.join(_p(m)[1].replace('$\\to$', '→') for m in methods) + ' |')
     return tex, md
 
 
-def single_seed_table(setups, methods, param_kind, caption, label):
+def single_seed_table(setups, methods, param_kind, caption, label, tex_names=None, md_names=None):
     n = len(methods)
+    tex_names, md_names = tex_names or TEX_NAME, md_names or D.DISPLAY
     tex = [r'\begin{table}[t]', r'\centering', r'\footnotesize', r'\setlength{\tabcolsep}{3.5pt}',
            rf'\caption{{{caption}}}', rf'\label{{{label}}}',
            r'\begin{tabular}{l' + 'c' * n + '}', r'\toprule',
-           'Task (stage) & ' + ' & '.join(TEX_NAME[m] for m in methods) + r' \\']
-    md = ['| Task (stage) | ' + ' | '.join(D.DISPLAY[m] for m in methods) + ' |',
+           'Task (stage) & ' + ' & '.join(tex_names[m] for m in methods) + r' \\']
+    md = ['| Task (stage) | ' + ' | '.join(md_names[m] for m in methods) + ' |',
           '|---' * (n + 1) + '|']
     for s in setups:
         t, m_ = setup_block(s, methods, param_kind)
         tex += t
         md += m_
+    tex += [r'\bottomrule', r'\end{tabular}', r'\end{table}']
+    return '\n'.join(tex), '\n'.join(md)
+
+
+def lora_variants_summary(methods=('ours', 'lora', 'lora_encmoe'), seed=42):
+    """Main-text table: AA, F and final-stage encoder parameters per setup."""
+    short = {'ours': r'\textsc{FLAME}', 'lora': r'MoE', 'lora_encmoe': r'enc.+MoE'}
+    n = len(methods)
+    groups = ['AA $\\uparrow$', 'F $\\downarrow$', 'Enc.\\ params, inference (M)',
+              'Enc.\\ params, method-attr.\\ (M)']
+    tex = [r'\begin{table}[t]', r'\centering', r'\footnotesize', r'\setlength{\tabcolsep}{2.0pt}',
+           r'\caption{\textsc{FLAME-CL} against \textsc{LoRA} with rank-32 adapters on the MoE experts '
+           r'only (MoE; the baseline of Fig.~\ref{fig:cl}) and on the encoders and the MoE (enc.+MoE), '
+           r'seed 42. AA and F over all tasks after the final stage; encoder parameters after the final '
+           r'stage, as the total resident at inference and as the part attributable to the CL method '
+           r'(\textsc{FLAME-CL}: its frozen low-rank stack; \textsc{LoRA}: base encoder plus adapters it '
+           r'trains, 0 for MoE-only adapters). Per-task numbers in Tab.~\ref{tab:cl-lora-variants}.}',
+           r'\label{tab:cl-lora-variants-summary}',
+           r'\begin{tabular}{@{}l' + 'c' * (n * len(groups)) + r'@{}}', r'\toprule',
+           ' & ' + ' & '.join(rf'\multicolumn{{{n}}}{{c}}{{{g}}}' for g in groups) + r' \\',
+           ''.join(rf'\cmidrule(lr){{{2 + i * n}-{1 + (i + 1) * n}}}' for i in range(len(groups))),
+           'Setup & ' + ' & '.join([' & '.join(short[m] for m in methods)] * len(groups)) + r' \\',
+           r'\midrule']
+    md = ['| Setup | ' + ' | '.join(f'{g} {LORA_MD[m]}' for g in ['AA', 'F', 'enc. inference (M)',
+                                                                    'enc. method-attr. (M)']
+                                     for m in methods) + ' |',
+          '|---' * (1 + n * len(groups)) + '|']
+    for s in D.SETUPS:
+        K = len(D.SETUPS[s]['stages'])
+        summ = {m: D.cl_summary(s, m, seed) for m in methods}
+        inf = {m: D.params(s, m, seed, 'inference')[K - 1]['enc'] for m in methods}
+        att = {m: D.params(s, m, seed, 'attributable')[K - 1]['enc'] for m in methods}
+        best = max(summ[m]['AA'] for m in methods)
+        aa = [(r'\textbf{%.3f}' if abs(summ[m]['AA'] - best) < 5e-4 else '%.3f') % summ[m]['AA']
+              for m in methods]
+        fmt = lambda v: f'{v:.1f}' if v >= 10 else f'{v:.2f}'  # noqa: E731
+        cells = aa + [f"{summ[m]['F']:.3f}" for m in methods] + [fmt(inf[m]) for m in methods] \
+            + [fmt(att[m]) for m in methods]
+        tex.append(f'{s} & ' + ' & '.join(cells) + r' \\')
+        md.append(f'| {s} | ' + ' | '.join(c.replace(r'\textbf{', '**').replace('}', '**') for c in cells) + ' |')
     tex += [r'\bottomrule', r'\end{tabular}', r'\end{table}']
     return '\n'.join(tex), '\n'.join(md)
 
@@ -203,7 +255,7 @@ def setup4_multiseed(methods, seeds):
 def dump_csv(path):
     rows = []
     jobs = [(s, m, 42) for s in D.SETUPS for m in
-            ['simple_ft', 'ewc', 'lora', 'lwf', 'same', 'trge', 'lifelong_pt', 'ours']]
+            ['simple_ft', 'ewc', 'lora', 'lora_encmoe', 'lwf', 'same', 'trge', 'lifelong_pt', 'ours']]
     jobs += [(4, m, sd) for m in ['ewc', 'lwf', 'same', 'trge', 'ours']
              for sd in D.SETUP4_TIMESTAMP_SEEDS]
     for s, m, sd in jobs:
@@ -266,6 +318,21 @@ def main():
     open(os.path.join(TAB, 'tab13_tab14_setup4.tex'), 'w').write(t13 + '\n\n' + t14 + '\n')
     md += ['## Setup 4, 3 timestamp seeds — Tab. 13 (first learned → final)', '', m13, '',
            '## Setup 4, 3 timestamp seeds — Tab. 14 (forgetting, AA, BWT)', '', m14, '']
+
+    tex, m = single_seed_table(
+        [1, 2, 3, 4], ['ours', 'lora', 'lora_encmoe'], ('inference', 'attributable'),
+        r'\textsc{FLAME-CL} against the two \textsc{LoRA} variants (rank-32 adapters on the MoE '
+        r'experts only, the baseline of Fig.~\ref{fig:cl}; and on the encoders and the MoE): AUROC '
+        r'when first learned $\to$ after the final stage (seed 42). Stage-$K$ tasks report one value; '
+        r'drops of at least 0.02 in bold. For \textsc{FLAME-CL} the first value is before rank-32 '
+        r'truncation. Parameters after the first $\to$ last stage, as inference-time totals and as '
+        r'method-attributable counts.',
+        'tab:cl-lora-variants', tex_names=LORA_TEX, md_names=LORA_MD)
+    open(os.path.join(TAB, 'tab_lora_variants_per_stage.tex'), 'w').write(tex + '\n')
+    md += ['## FLAME-CL vs the two LoRA variants (seed 42)', '', m, '']
+    tex, m = lora_variants_summary()
+    open(os.path.join(TAB, 'tab_lora_variants_summary.tex'), 'w').write(tex + '\n')
+    md += ['## FLAME-CL vs the two LoRA variants, summary (seed 42)', '', m, '']
 
     open(os.path.join(TAB, 'cl_tables.md'), 'w').write('\n'.join(md))
     print('wrote', TAB)

@@ -4,6 +4,7 @@ Method colours were checked with the dataviz palette validator (Machado 2009
 CVD simulation, OKLab dE x100), all pairs within each figure's method set:
   Fig. 5/10  {Simple FT, EWC, LoRA, FLAME-CL}: worst CVD dE 9.1, normal dE 22.9 (pass)
   new-baseline fig {FLAME-CL, TRGE, SAME, LwF}: worst CVD dE 11.1, normal dE 19.2 (pass)
+  LoRA-variants fig {FLAME-CL, LoRA, LoRA enc+MoE}: worst CVD dE 8.8, normal dE 24.9 (pass)
 The previous paper colours failed (EWC orange vs LoRA green: CVD dE 3.6;
 EWC orange vs FLAME-CL red: normal dE 13.7). Colours keep the hue names the
 captions already use (FLAME-CL red, LoRA green, Simple FT blue, EWC orange).
@@ -29,6 +30,7 @@ METHOD_COLOR = {
     'same': '#b8860b',
     'lwf': '#e87ba4',
     'lifelong_pt': '#6250d6',   # only ever shown next to FLAME-CL (Fig. 8): CVD dE 25.0
+    'lora_encmoe': '#0f5f73',   # dark teal (LoRA family); only in the LoRA-variants figure
 }
 METHOD_LS = {
     'ours': '-',
@@ -39,6 +41,7 @@ METHOD_LS = {
     'same': (0, (1.2, 1.4)),
     'lwf': (0, (5, 1.5, 1.2, 1.5)),
     'lifelong_pt': (0, (4, 1.6)),
+    'lora_encmoe': (0, (2.4, 1.2)),
 }
 TASK_MARKER = {
     'pheno': 'o', 'los': 's', 'ihm': '^', 'mortality': 'D',
